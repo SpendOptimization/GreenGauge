@@ -8,6 +8,7 @@ from typing import Iterator
 from .models import (
     CodingSessionFinish,
     CodingSessionStart,
+    CostEffectivenessGroup,
     Issue,
     Recommendation,
     SessionEvent,
@@ -55,6 +56,7 @@ CREATE TABLE IF NOT EXISTS work_item_metrics (
     session_count INTEGER NOT NULL DEFAULT 0,
     turn_count INTEGER NOT NULL DEFAULT 0,
     human_interventions INTEGER NOT NULL DEFAULT 0,
+    human_episode_ids_json TEXT NOT NULL DEFAULT '[]',
     ci_attempts INTEGER NOT NULL DEFAULT 0,
     ci_first_try_successes INTEGER NOT NULL DEFAULT 0,
     ci_successes INTEGER NOT NULL DEFAULT 0,
@@ -65,9 +67,15 @@ CREATE TABLE IF NOT EXISTS work_item_metrics (
     pr_threads_multi_participant INTEGER NOT NULL DEFAULT 0,
     input_tokens INTEGER NOT NULL DEFAULT 0,
     cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_write_tokens INTEGER NOT NULL DEFAULT 0,
     output_tokens INTEGER NOT NULL DEFAULT 0,
     reasoning_tokens INTEGER NOT NULL DEFAULT 0,
     total_cost_usd REAL NOT NULL DEFAULT 0,
+    acceptance_tests_passed INTEGER NOT NULL DEFAULT 0,
+    regression_tests_passed INTEGER NOT NULL DEFAULT 0,
+    green INTEGER NOT NULL DEFAULT 0,
+    autonomous_green INTEGER NOT NULL DEFAULT 0,
+    termination_reason TEXT,
     model_usage_json TEXT NOT NULL DEFAULT '{}',
     files_touched_json TEXT NOT NULL DEFAULT '[]',
     modules_touched_json TEXT NOT NULL DEFAULT '[]',
@@ -75,6 +83,7 @@ CREATE TABLE IF NOT EXISTS work_item_metrics (
     extra_json TEXT NOT NULL DEFAULT '{}',
     first_started_at TEXT,
     ci_passing_at TEXT,
+    completed_at TEXT,
     updated_at TEXT NOT NULL
 );
 
@@ -93,15 +102,21 @@ CREATE TABLE IF NOT EXISTS coding_sessions (
     outcome TEXT,
     turn_count INTEGER NOT NULL DEFAULT 0,
     human_interventions INTEGER NOT NULL DEFAULT 0,
+    human_episode_ids_json TEXT NOT NULL DEFAULT '[]',
     ci_attempts INTEGER NOT NULL DEFAULT 0,
     ci_successes INTEGER NOT NULL DEFAULT 0,
     ci_failures INTEGER NOT NULL DEFAULT 0,
     active_seconds REAL NOT NULL DEFAULT 0,
     input_tokens INTEGER NOT NULL DEFAULT 0,
     cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_write_tokens INTEGER NOT NULL DEFAULT 0,
     output_tokens INTEGER NOT NULL DEFAULT 0,
     reasoning_tokens INTEGER NOT NULL DEFAULT 0,
     total_cost_usd REAL NOT NULL DEFAULT 0,
+    acceptance_tests_passed INTEGER NOT NULL DEFAULT 0,
+    regression_tests_passed INTEGER NOT NULL DEFAULT 0,
+    green INTEGER NOT NULL DEFAULT 0,
+    termination_reason TEXT,
     FOREIGN KEY(work_item_id) REFERENCES work_item_metrics(id) ON DELETE SET NULL
 );
 
@@ -162,6 +177,24 @@ class Database:
                     "ALTER TABLE issues ADD COLUMN issue_type TEXT NOT NULL DEFAULT 'uncategorized'"
                 )
             connection.executescript(SCHEMA)
+            self._add_missing_columns(connection, "work_item_metrics", {
+                "human_episode_ids_json": "TEXT NOT NULL DEFAULT '[]'",
+                "cache_write_tokens": "INTEGER NOT NULL DEFAULT 0",
+                "acceptance_tests_passed": "INTEGER NOT NULL DEFAULT 0",
+                "regression_tests_passed": "INTEGER NOT NULL DEFAULT 0",
+                "green": "INTEGER NOT NULL DEFAULT 0",
+                "autonomous_green": "INTEGER NOT NULL DEFAULT 0",
+                "termination_reason": "TEXT",
+                "completed_at": "TEXT",
+            })
+            self._add_missing_columns(connection, "coding_sessions", {
+                "human_episode_ids_json": "TEXT NOT NULL DEFAULT '[]'",
+                "cache_write_tokens": "INTEGER NOT NULL DEFAULT 0",
+                "acceptance_tests_passed": "INTEGER NOT NULL DEFAULT 0",
+                "regression_tests_passed": "INTEGER NOT NULL DEFAULT 0",
+                "green": "INTEGER NOT NULL DEFAULT 0",
+                "termination_reason": "TEXT",
+            })
             now = datetime.now(timezone.utc).isoformat()
             connection.execute(
                 """
@@ -174,6 +207,15 @@ class Database:
                 (now,),
             )
             connection.execute("PRAGMA optimize")
+
+    @staticmethod
+    def _add_missing_columns(
+        connection: sqlite3.Connection, table: str, definitions: dict[str, str]
+    ) -> None:
+        columns = {row[1] for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
+        for name, definition in definitions.items():
+            if name not in columns:
+                connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
 
     def upsert_issue(self, issue: Issue, repository: str) -> None:
         issue_type = issue.issue_type if issue.issue_type != "uncategorized" else classify_issue(issue.labels)
@@ -412,9 +454,44 @@ class Database:
                 connection, session, event.final_metrics, pricing, event.finished_at, count_turn=False
             )
             connection.execute(
-                "UPDATE coding_sessions SET finished_at=?, outcome=? WHERE session_id=?",
-                (event.finished_at.isoformat(), event.outcome, event.session_id),
+                """
+                UPDATE coding_sessions
+                SET finished_at=COALESCE(finished_at, ?),
+                    outcome=CASE WHEN ?='unknown' THEN outcome ELSE ? END,
+                    termination_reason=CASE WHEN ?='unknown' THEN termination_reason ELSE ? END
+                WHERE session_id=?
+                """,
+                (
+                    event.finished_at.isoformat(), event.outcome, event.outcome,
+                    event.termination_reason, event.termination_reason, event.session_id,
+                ),
             )
+            aggregate_row = (
+                connection.execute(
+                    "SELECT green FROM work_item_metrics WHERE id=?", (session["work_item_id"],)
+                ).fetchone()
+                if session["work_item_id"]
+                else None
+            )
+            completed = (
+                bool(aggregate_row and aggregate_row["green"])
+                or event.outcome in {"success", "failed", "abandoned"}
+                or event.termination_reason != "unknown"
+            )
+            if completed and session["work_item_id"]:
+                connection.execute(
+                    """
+                    UPDATE work_item_metrics
+                    SET completed_at=COALESCE(completed_at, ?),
+                        termination_reason=CASE WHEN ?='unknown' THEN termination_reason ELSE ? END,
+                        updated_at=?
+                    WHERE id=?
+                    """,
+                    (
+                        event.finished_at.isoformat(), event.termination_reason, event.termination_reason,
+                        event.finished_at.isoformat(), session["work_item_id"],
+                    ),
+                )
             aggregate = self._get_work_item_by_id(connection, session["work_item_id"])
         return TelemetryAck(accepted=True, duplicate=False, aggregate=aggregate)
 
@@ -442,6 +519,95 @@ class Database:
                 (repository, issue_number),
             ).fetchone()
         return self._work_item_from_row(row) if row else None
+
+    def cost_effectiveness(self, repository: str) -> list[CostEffectivenessGroup]:
+        """Calculate CPGI per issue/model run, combining same-model sessions on one work item."""
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT w.id AS work_item_id, w.issue_type, s.model, s.outcome,
+                       s.termination_reason, s.green, s.human_interventions,
+                       s.human_episode_ids_json, s.total_cost_usd
+                FROM coding_sessions s
+                JOIN work_item_metrics w ON w.id=s.work_item_id
+                WHERE w.repository=? AND s.model IS NOT NULL
+                """,
+                (repository,),
+            ).fetchall()
+        runs: dict[tuple[int, str], dict[str, object]] = {}
+        for row in rows:
+            key = (row["work_item_id"], row["model"].lower())
+            current = runs.setdefault(key, {
+                "model": row["model"],
+                "issue_type": row["issue_type"],
+                "spend": 0.0,
+                "green": False,
+                "completed": False,
+                "episode_ids": set(),
+                "legacy_interruptions": 0,
+            })
+            episode_ids = set(json.loads(row["human_episode_ids_json"]))
+            current["spend"] = float(current["spend"]) + float(row["total_cost_usd"])
+            current["green"] = bool(current["green"]) or bool(row["green"])
+            current["completed"] = bool(current["completed"]) or (
+                bool(row["green"])
+                or row["outcome"] in {"success", "failed", "abandoned"}
+                or (row["termination_reason"] not in {None, "unknown"})
+            )
+            current_episode_ids = current["episode_ids"]
+            assert isinstance(current_episode_ids, set)
+            current_episode_ids.update(episode_ids)
+            current["legacy_interruptions"] = int(current["legacy_interruptions"]) + max(
+                0, int(row["human_interventions"]) - len(episode_ids)
+            )
+
+        grouped: dict[tuple[str, str], dict[str, int | float]] = {}
+        for run in runs.values():
+            if not run["completed"]:
+                continue
+            model = str(run["model"])
+            issue_type = str(run["issue_type"])
+            key = (model, issue_type)
+            current = grouped.setdefault(key, {
+                "attempted": 0,
+                "green": 0,
+                "autonomous_green": 0,
+                "spend": 0.0,
+                "interruptions": 0,
+            })
+            episode_ids = run["episode_ids"]
+            assert isinstance(episode_ids, set)
+            interruptions = len(episode_ids) + int(run["legacy_interruptions"])
+            green = int(bool(run["green"]))
+            current["attempted"] += 1
+            current["green"] += green
+            current["autonomous_green"] += int(bool(green and interruptions == 0))
+            current["spend"] += float(run["spend"])
+            current["interruptions"] += interruptions
+
+        groups: list[CostEffectivenessGroup] = []
+        for (model, issue_type), values in grouped.items():
+            spend = round(float(values["spend"]), 8)
+            green = int(values["green"])
+            autonomous_green = int(values["autonomous_green"])
+            interruptions = int(values["interruptions"])
+            groups.append(CostEffectivenessGroup(
+                model=model,
+                issue_type=issue_type,
+                attempted_issues=int(values["attempted"]),
+                green_issues=green,
+                autonomous_green_issues=autonomous_green,
+                total_spend_usd=spend,
+                cost_per_green_issue_usd=round(spend / green, 8) if green else None,
+                autonomous_cost_per_green_issue_usd=(
+                    round(spend / autonomous_green, 8) if autonomous_green else None
+                ),
+                total_human_interruptions=interruptions,
+                interruptions_per_green_issue=(
+                    round(interruptions / green, 3) if green else None
+                ),
+            ))
+        return sorted(groups, key=lambda group: (group.issue_type, group.model.lower()))
 
     def add_session_event(self, event: SessionEvent) -> SessionRecord:
         received_at = datetime.now(timezone.utc)
@@ -482,24 +648,51 @@ class Database:
     ) -> None:
         input_tokens = sum(usage.input_tokens for usage in metrics.model_usage)
         cached_tokens = sum(usage.cached_input_tokens for usage in metrics.model_usage)
+        cache_write_tokens = sum(usage.cache_write_tokens for usage in metrics.model_usage)
         output_tokens = sum(usage.output_tokens for usage in metrics.model_usage)
         reasoning_tokens = sum(usage.reasoning_tokens for usage in metrics.model_usage)
         cost = sum(pricing.cost(usage) for usage in metrics.model_usage)
+        session_episode_ids = sorted(
+            set(json.loads(session["human_episode_ids_json"]))
+            | set(metrics.human_clarification_episode_ids)
+        )
+        session_new_episodes = (
+            len(session_episode_ids) - len(json.loads(session["human_episode_ids_json"]))
+        )
+        session_human_interventions = (
+            session["human_interventions"] + metrics.human_interventions + session_new_episodes
+        )
+        session_acceptance = (
+            int(metrics.acceptance_tests_passed)
+            if metrics.acceptance_tests_passed is not None
+            else session["acceptance_tests_passed"]
+        )
+        session_regression = (
+            int(metrics.regression_tests_passed)
+            if metrics.regression_tests_passed is not None
+            else session["regression_tests_passed"]
+        )
+        session_green = int(bool(session_acceptance and session_regression))
+        inferred_model = metrics.model_usage[0].model if metrics.model_usage else None
         connection.execute(
             """
             UPDATE coding_sessions SET
-                turn_count=turn_count + ?, human_interventions=human_interventions + ?,
+                turn_count=turn_count + ?, human_interventions=?, human_episode_ids_json=?,
                 ci_attempts=ci_attempts + ?, ci_successes=ci_successes + ?,
                 ci_failures=ci_failures + ?, active_seconds=active_seconds + ?,
                 input_tokens=input_tokens + ?, cached_input_tokens=cached_input_tokens + ?,
-                output_tokens=output_tokens + ?, reasoning_tokens=reasoning_tokens + ?,
-                total_cost_usd=total_cost_usd + ?
+                cache_write_tokens=cache_write_tokens + ?, output_tokens=output_tokens + ?,
+                reasoning_tokens=reasoning_tokens + ?, total_cost_usd=total_cost_usd + ?,
+                acceptance_tests_passed=?, regression_tests_passed=?, green=?,
+                model=COALESCE(model, ?)
             WHERE session_id=?
             """,
             (
-                int(count_turn), metrics.human_interventions, metrics.ci_attempts,
+                int(count_turn), session_human_interventions, json.dumps(session_episode_ids),
+                metrics.ci_attempts,
                 metrics.ci_successes, metrics.ci_failures, metrics.active_seconds,
-                input_tokens, cached_tokens, output_tokens, reasoning_tokens, cost,
+                input_tokens, cached_tokens, cache_write_tokens, output_tokens, reasoning_tokens,
+                cost, session_acceptance, session_regression, session_green, inferred_model,
                 session["session_id"],
             ),
         )
@@ -514,12 +707,14 @@ class Database:
             current = model_usage.setdefault(usage.model, {
                 "input_tokens": 0,
                 "cached_input_tokens": 0,
+                "cache_write_tokens": 0,
                 "output_tokens": 0,
                 "reasoning_tokens": 0,
                 "cost_usd": 0,
             })
             current["input_tokens"] += usage.input_tokens
             current["cached_input_tokens"] += usage.cached_input_tokens
+            current["cache_write_tokens"] = current.get("cache_write_tokens", 0) + usage.cache_write_tokens
             current["output_tokens"] += usage.output_tokens
             current["reasoning_tokens"] += usage.reasoning_tokens
             current["cost_usd"] = round(float(current["cost_usd"]) + pricing.cost(usage), 8)
@@ -528,11 +723,29 @@ class Database:
         modules = sorted(set(json.loads(row["modules_touched_json"])) | set(metrics.modules_touched))
         change_types = sorted(set(json.loads(row["change_types_json"])) | set(metrics.change_types))
         extra = {**json.loads(row["extra_json"]), **metrics.extra}
-        ci_passing_at = occurred_at.isoformat() if metrics.all_ci_passed else row["ci_passing_at"]
+        existing_episode_ids = json.loads(row["human_episode_ids_json"])
+        episode_ids = sorted(set(existing_episode_ids) | set(metrics.human_clarification_episode_ids))
+        new_episode_count = len(episode_ids) - len(existing_episode_ids)
+        human_interventions = (
+            row["human_interventions"] + metrics.human_interventions + new_episode_count
+        )
+        acceptance_passed = (
+            int(metrics.acceptance_tests_passed)
+            if metrics.acceptance_tests_passed is not None
+            else row["acceptance_tests_passed"]
+        )
+        regression_passed = (
+            int(metrics.regression_tests_passed)
+            if metrics.regression_tests_passed is not None
+            else row["regression_tests_passed"]
+        )
+        green = int(bool(acceptance_passed and regression_passed))
+        autonomous_green = int(bool(green and human_interventions == 0))
+        ci_passing_at = row["ci_passing_at"] or (occurred_at.isoformat() if green else None)
         connection.execute(
             """
             UPDATE work_item_metrics SET
-                turn_count=turn_count + ?, human_interventions=human_interventions + ?,
+                turn_count=turn_count + ?, human_interventions=?, human_episode_ids_json=?,
                 ci_attempts=ci_attempts + ?, ci_first_try_successes=ci_first_try_successes + ?,
                 ci_successes=ci_successes + ?, ci_failures=ci_failures + ?,
                 active_seconds=active_seconds + ?,
@@ -540,18 +753,22 @@ class Database:
                 logic_branches_removed=logic_branches_removed + ?,
                 pr_threads_multi_participant=pr_threads_multi_participant + ?,
                 input_tokens=input_tokens + ?, cached_input_tokens=cached_input_tokens + ?,
+                cache_write_tokens=cache_write_tokens + ?,
                 output_tokens=output_tokens + ?, reasoning_tokens=reasoning_tokens + ?,
                 total_cost_usd=total_cost_usd + ?, model_usage_json=?,
+                acceptance_tests_passed=?, regression_tests_passed=?, green=?, autonomous_green=?,
                 files_touched_json=?, modules_touched_json=?, change_types_json=?, extra_json=?,
                 ci_passing_at=?, updated_at=?
             WHERE id=?
             """,
             (
-                int(count_turn), metrics.human_interventions, metrics.ci_attempts,
+                int(count_turn), human_interventions, json.dumps(episode_ids), metrics.ci_attempts,
                 metrics.ci_first_try_successes, metrics.ci_successes, metrics.ci_failures,
                 metrics.active_seconds, metrics.logic_branches_added, metrics.logic_branches_removed,
-                metrics.pr_threads_multi_participant, input_tokens, cached_tokens, output_tokens,
-                reasoning_tokens, cost, json.dumps(model_usage), json.dumps(files), json.dumps(modules),
+                metrics.pr_threads_multi_participant, input_tokens, cached_tokens, cache_write_tokens,
+                output_tokens, reasoning_tokens, cost, json.dumps(model_usage),
+                acceptance_passed, regression_passed, green, autonomous_green,
+                json.dumps(files), json.dumps(modules),
                 json.dumps(change_types), json.dumps(extra), ci_passing_at,
                 occurred_at.isoformat(), work_item_id,
             ),
@@ -630,17 +847,25 @@ class Database:
             pr_url=row["pr_url"], issue_type=row["issue_type"], labels=json.loads(row["labels_json"]),
             session_count=row["session_count"], turn_count=row["turn_count"],
             human_interventions=row["human_interventions"], ci_attempts=row["ci_attempts"],
+            human_clarification_episode_ids=json.loads(row["human_episode_ids_json"]),
             ci_first_try_successes=row["ci_first_try_successes"], ci_successes=row["ci_successes"],
             ci_failures=row["ci_failures"], active_seconds=row["active_seconds"],
             logic_branches_added=row["logic_branches_added"],
             logic_branches_removed=row["logic_branches_removed"],
             pr_threads_multi_participant=row["pr_threads_multi_participant"],
             input_tokens=row["input_tokens"], cached_input_tokens=row["cached_input_tokens"],
+            cache_write_tokens=row["cache_write_tokens"],
             output_tokens=row["output_tokens"], reasoning_tokens=row["reasoning_tokens"],
-            total_cost_usd=row["total_cost_usd"], model_usage=json.loads(row["model_usage_json"]),
+            total_cost_usd=row["total_cost_usd"],
+            acceptance_tests_passed=bool(row["acceptance_tests_passed"]),
+            regression_tests_passed=bool(row["regression_tests_passed"]),
+            green=bool(row["green"]), autonomous_green=bool(row["autonomous_green"]),
+            termination_reason=row["termination_reason"],
+            model_usage=json.loads(row["model_usage_json"]),
             files_touched=json.loads(row["files_touched_json"]),
             modules_touched=json.loads(row["modules_touched_json"]),
             change_types=json.loads(row["change_types_json"]), extra=json.loads(row["extra_json"]),
             first_started_at=row["first_started_at"], ci_passing_at=row["ci_passing_at"],
+            completed_at=row["completed_at"],
             updated_at=row["updated_at"],
         )

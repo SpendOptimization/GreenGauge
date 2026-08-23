@@ -28,6 +28,8 @@ TEST_COMMAND = re.compile(
     r"yarn\s+(run\s+)?test|gh\s+pr\s+checks)(\s|$)",
     re.IGNORECASE,
 )
+ACCEPTANCE_COMMAND = re.compile(r"\b(acceptance|e2e|end[- ]to[- ]end)\b", re.IGNORECASE)
+REGRESSION_COMMAND = re.compile(r"\bregression\b", re.IGNORECASE)
 LOGIC_BRANCH = re.compile(r"\b(if|else\s+if|elif|else|switch|case|match|catch|except)\b")
 
 
@@ -260,6 +262,8 @@ def main() -> None:
             "pending_ci_failures": 0,
             "pending_ci_first_try_successes": 0,
             "pending_all_ci_passed": False,
+            "pending_acceptance_tests_passed": None,
+            "pending_regression_tests_passed": None,
             "branch_added_total": 0,
             "branch_removed_total": 0,
         }
@@ -289,16 +293,16 @@ def main() -> None:
 
     if action == "prompt":
         state["prompt_count"] = int(state.get("prompt_count", 0)) + 1
-        if state["prompt_count"] > 1:
-            state["pending_human_interventions"] = int(state.get("pending_human_interventions", 0)) + 1
         state["turn_started_monotonic"] = time.monotonic()
         state["active_turn_id"] = turn_id
         write_state(state_path, state)
         context_output(
             "UserPromptSubmit",
             f"GreenGauge current sessionId={session_id}, turnId={turn_id}. Before your final response, "
-            "call record_turn_metrics once using these exact IDs. Send only this turn's incremental "
-            "runtime-reported token/model usage and semantic metrics; never estimate or send content.",
+            "call record_turn_metrics once using these exact IDs. Send one entry per runtime-reported "
+            "model call. If this prompt clarifies, corrects, adds missing context, or unblocks work, "
+            "include a stable clarification episode ID (reuse it for follow-ups in the same episode). "
+            "Report observed acceptance/regression results; never estimate or send content.",
         )
         return
 
@@ -318,6 +322,10 @@ def main() -> None:
             elif exit_code is not None:
                 state["pending_ci_failures"] = int(state.get("pending_ci_failures", 0)) + 1
                 state["pending_all_ci_passed"] = False
+            if exit_code is not None and ACCEPTANCE_COMMAND.search(command):
+                state["pending_acceptance_tests_passed"] = exit_code == 0
+            if exit_code is not None and REGRESSION_COMMAND.search(command):
+                state["pending_regression_tests_passed"] = exit_code == 0
         write_state(state_path, state)
         print("{}")
         return
@@ -343,6 +351,8 @@ def main() -> None:
                 "ci_successes": int(state.get("pending_ci_successes", 0)),
                 "ci_failures": int(state.get("pending_ci_failures", 0)),
                 "all_ci_passed": bool(state.get("pending_all_ci_passed", False)),
+                "acceptance_tests_passed": state.get("pending_acceptance_tests_passed"),
+                "regression_tests_passed": state.get("pending_regression_tests_passed"),
                 "active_seconds": round(active_seconds, 3),
                 "logic_branches_added": added_delta,
                 "logic_branches_removed": removed_delta,
@@ -364,6 +374,8 @@ def main() -> None:
             "pending_ci_failures": 0,
             "pending_ci_first_try_successes": 0,
             "pending_all_ci_passed": False,
+            "pending_acceptance_tests_passed": None,
+            "pending_regression_tests_passed": None,
             "branch_added_total": added_total,
             "branch_removed_total": removed_total,
         })

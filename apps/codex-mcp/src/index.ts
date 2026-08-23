@@ -14,7 +14,9 @@ const server = new McpServer(
       "Once the GitHub issue or PR is known, call attach_coding_session with that same sessionId so every session rolls up to one work item.",
       "Before the final response of EVERY turn, call record_turn_metrics once with that same sessionId and turnId.",
       "Every numeric value must be an incremental delta for only this turn, never a session-to-date total.",
-      "Report only runtime-provided token counts; never estimate them. Group token deltas by exact model name.",
+      "Report one modelUsage entry per runtime-reported model API call; never estimate token counts. InputTokens must be total input including cache read/write tokens, and reasoning tokens must not be added to output tokens.",
+      "When a human had to clarify, correct, add missing context, or unblock you, report a stable humanClarificationEpisodeId. Reuse the same ID for multiple messages in one clarification episode.",
+      "Set acceptanceTestsPassed and regressionTestsPassed only from observed suite results; GreenGauge defines green as both being true.",
       "Prefer semantic fields the hook cannot know (changeTypes and extension metrics). Do not repeat hook-observed active time, test attempts, human interventions, or file paths unless the hook context says baseline reporting failed.",
       "Never send source code, file contents, prompts, assistant messages, secrets, or personal data.",
     ].join(" "),
@@ -36,13 +38,16 @@ async function send(path: string, payload: Record<string, unknown>) {
 }
 
 const modelUsageSchema = z.object({
+  callId: z.string().optional().describe("Runtime call ID when available"),
   model: z.string().describe("Exact model name reported by the runtime"),
   inputTokens: z.number().int().nonnegative().default(0),
   cachedInputTokens: z.number().int().nonnegative().default(0),
+  cacheWriteTokens: z.number().int().nonnegative().default(0),
   outputTokens: z.number().int().nonnegative().default(0),
   reasoningTokens: z.number().int().nonnegative().default(0),
   inputCostPerMillion: z.number().nonnegative().optional(),
   cachedInputCostPerMillion: z.number().nonnegative().optional(),
+  cacheWriteCostPerMillion: z.number().nonnegative().optional(),
   outputCostPerMillion: z.number().nonnegative().optional(),
 });
 
@@ -90,6 +95,7 @@ server.registerTool(
       turnId: z.string().describe("Exact turnId injected by the GreenGauge hook"),
       eventId: z.string().optional().describe("Optional idempotency key; generated deterministically if omitted"),
       modelUsage: z.array(modelUsageSchema).default([]),
+      humanClarificationEpisodeIds: z.array(z.string()).default([]),
       changeTypes: z
         .array(z.enum(["frontend", "backend", "async", "cdc", "database", "infra", "tests", "docs", "other"]))
         .default([]),
@@ -103,15 +109,18 @@ server.registerTool(
       ciSuccesses: z.number().int().nonnegative().default(0),
       ciFailures: z.number().int().nonnegative().default(0),
       allCiPassed: z.boolean().default(false),
+      acceptanceTestsPassed: z.boolean().optional(),
+      regressionTestsPassed: z.boolean().optional(),
       activeSeconds: z.number().nonnegative().default(0),
       filesTouched: z.array(z.string()).default([]),
       extraMetrics: z.record(z.unknown()).default({}),
     },
   },
   async ({
-    sessionId, turnId, eventId, modelUsage, changeTypes, modulesTouched, logicBranchesAdded,
+    sessionId, turnId, eventId, modelUsage, humanClarificationEpisodeIds, changeTypes, modulesTouched, logicBranchesAdded,
     logicBranchesRemoved, prThreadsMultiParticipant, humanInterventions, ciAttempts,
-    ciFirstTrySuccesses, ciSuccesses, ciFailures, allCiPassed, activeSeconds, filesTouched,
+    ciFirstTrySuccesses, ciSuccesses, ciFailures, allCiPassed, acceptanceTestsPassed,
+    regressionTestsPassed, activeSeconds, filesTouched,
     extraMetrics,
   }) => {
     const result = await send(`/api/v1/telemetry/sessions/${encodeURIComponent(sessionId)}/turns`, {
@@ -122,11 +131,14 @@ server.registerTool(
       source: "mcp",
       metrics: {
         human_interventions: humanInterventions,
+        human_clarification_episode_ids: humanClarificationEpisodeIds,
         ci_attempts: ciAttempts,
         ci_first_try_successes: ciFirstTrySuccesses,
         ci_successes: ciSuccesses,
         ci_failures: ciFailures,
         all_ci_passed: allCiPassed,
+        acceptance_tests_passed: acceptanceTestsPassed,
+        regression_tests_passed: regressionTestsPassed,
         active_seconds: activeSeconds,
         logic_branches_added: logicBranchesAdded,
         logic_branches_removed: logicBranchesRemoved,
@@ -135,13 +147,16 @@ server.registerTool(
         modules_touched: modulesTouched,
         change_types: changeTypes,
         model_usage: modelUsage.map((usage) => ({
+          call_id: usage.callId,
           model: usage.model,
           input_tokens: usage.inputTokens,
           cached_input_tokens: usage.cachedInputTokens,
+          cache_write_tokens: usage.cacheWriteTokens,
           output_tokens: usage.outputTokens,
           reasoning_tokens: usage.reasoningTokens,
           input_cost_per_million: usage.inputCostPerMillion,
           cached_input_cost_per_million: usage.cachedInputCostPerMillion,
+          cache_write_cost_per_million: usage.cacheWriteCostPerMillion,
           output_cost_per_million: usage.outputCostPerMillion,
         })),
         extra: extraMetrics,
@@ -159,16 +174,20 @@ server.registerTool(
     inputSchema: {
       sessionId: z.string(),
       outcome: z.enum(["success", "partial", "failed", "abandoned", "unknown"]),
+      terminationReason: z.enum([
+        "green", "gave_up", "turn_limit", "time_limit", "cost_limit", "abandoned", "unknown",
+      ]).default("unknown"),
       eventId: z.string().optional(),
       finalExtraMetrics: z.record(z.unknown()).default({}),
     },
   },
-  async ({ sessionId, outcome, eventId, finalExtraMetrics }) => {
+  async ({ sessionId, outcome, terminationReason, eventId, finalExtraMetrics }) => {
     const result = await send(`/api/v1/telemetry/sessions/${encodeURIComponent(sessionId)}/finish`, {
       event_id: eventId ?? `mcp-finish:${sessionId}`,
       session_id: sessionId,
       finished_at: new Date().toISOString(),
       outcome,
+      termination_reason: terminationReason,
       source: "mcp",
       final_metrics: { extra: finalExtraMetrics },
     });

@@ -23,9 +23,9 @@ class Settings(BaseSettings):
     )
     mcp_api_key: str | None = None
     model_pricing_json: str = (
-        '{"terra":{"input":0.25,"cached_input":0.025,"output":1.5},'
-        '"sonnet":{"input":3.0,"cached_input":0.3,"output":15.0},'
-        '"sol":{"input":2.5,"cached_input":0.25,"output":15.0}}'
+        '{"terra":{"input":0.25,"cached_input":0.025,"cache_write":0.25,"output":1.5},'
+        '"sonnet":{"input":3.0,"cached_input":0.3,"cache_write":3.0,"output":15.0},'
+        '"sol":{"input":2.5,"cached_input":0.25,"cache_write":2.5,"output":15.0}}'
     )
 
     model_config = SettingsConfigDict(

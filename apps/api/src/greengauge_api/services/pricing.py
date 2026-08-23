@@ -8,6 +8,7 @@ from ..models import ModelUsageDelta
 class ModelRates:
     input: float = 0
     cached_input: float = 0
+    cache_write: float = 0
     output: float = 0
 
 
@@ -24,6 +25,7 @@ class ModelPricingCatalog:
             name: ModelRates(
                 input=float(values.get("input", 0)),
                 cached_input=float(values.get("cached_input", 0)),
+                cache_write=float(values.get("cache_write", values.get("input", 0))),
                 output=float(values.get("output", 0)),
             )
             for name, values in payload.items()
@@ -37,9 +39,18 @@ class ModelPricingCatalog:
             if usage.cached_input_cost_per_million is not None
             else configured.cached_input
         )
+        cache_write_rate = (
+            usage.cache_write_cost_per_million
+            if usage.cache_write_cost_per_million is not None
+            else configured.cache_write
+        )
         output_rate = usage.output_cost_per_million if usage.output_cost_per_million is not None else configured.output
+        uncached_input_tokens = max(
+            0, usage.input_tokens - usage.cached_input_tokens - usage.cache_write_tokens
+        )
         return round((
-            usage.input_tokens * input_rate
+            uncached_input_tokens * input_rate
             + usage.cached_input_tokens * cached_rate
+            + usage.cache_write_tokens * cache_write_rate
             + usage.output_tokens * output_rate
         ) / 1_000_000, 8)

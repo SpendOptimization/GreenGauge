@@ -100,23 +100,29 @@ class SessionRecord(SessionEvent):
 
 
 class ModelUsageDelta(BaseModel):
+    call_id: str | None = None
     model: str
     input_tokens: int = Field(default=0, ge=0)
     cached_input_tokens: int = Field(default=0, ge=0)
+    cache_write_tokens: int = Field(default=0, ge=0)
     output_tokens: int = Field(default=0, ge=0)
     reasoning_tokens: int = Field(default=0, ge=0)
     input_cost_per_million: float | None = Field(default=None, ge=0)
     cached_input_cost_per_million: float | None = Field(default=None, ge=0)
+    cache_write_cost_per_million: float | None = Field(default=None, ge=0)
     output_cost_per_million: float | None = Field(default=None, ge=0)
 
 
 class TurnMetricDelta(BaseModel):
     human_interventions: int = Field(default=0, ge=0)
+    human_clarification_episode_ids: list[str] = Field(default_factory=list)
     ci_attempts: int = Field(default=0, ge=0)
     ci_first_try_successes: int = Field(default=0, ge=0)
     ci_successes: int = Field(default=0, ge=0)
     ci_failures: int = Field(default=0, ge=0)
     all_ci_passed: bool = False
+    acceptance_tests_passed: bool | None = None
+    regression_tests_passed: bool | None = None
     active_seconds: float = Field(default=0, ge=0)
     logic_branches_added: int = Field(default=0, ge=0)
     logic_branches_removed: int = Field(default=0, ge=0)
@@ -154,6 +160,9 @@ class CodingSessionFinish(BaseModel):
     session_id: str
     finished_at: datetime
     outcome: Literal["success", "partial", "failed", "abandoned", "unknown"] = "unknown"
+    termination_reason: Literal[
+        "green", "gave_up", "turn_limit", "time_limit", "cost_limit", "abandoned", "unknown"
+    ] = "unknown"
     source: str = "mcp"
     final_metrics: TurnMetricDelta = Field(default_factory=TurnMetricDelta)
 
@@ -168,6 +177,7 @@ class WorkItemMetrics(BaseModel):
     session_count: int = 0
     turn_count: int = 0
     human_interventions: int = 0
+    human_clarification_episode_ids: list[str] = Field(default_factory=list)
     ci_attempts: int = 0
     ci_first_try_successes: int = 0
     ci_successes: int = 0
@@ -178,9 +188,15 @@ class WorkItemMetrics(BaseModel):
     pr_threads_multi_participant: int = 0
     input_tokens: int = 0
     cached_input_tokens: int = 0
+    cache_write_tokens: int = 0
     output_tokens: int = 0
     reasoning_tokens: int = 0
     total_cost_usd: float = 0
+    acceptance_tests_passed: bool = False
+    regression_tests_passed: bool = False
+    green: bool = False
+    autonomous_green: bool = False
+    termination_reason: str | None = None
     model_usage: dict[str, dict[str, int | float]] = Field(default_factory=dict)
     files_touched: list[str] = Field(default_factory=list)
     modules_touched: list[str] = Field(default_factory=list)
@@ -188,6 +204,7 @@ class WorkItemMetrics(BaseModel):
     extra: dict[str, Any] = Field(default_factory=dict)
     first_started_at: datetime | None = None
     ci_passing_at: datetime | None = None
+    completed_at: datetime | None = None
     updated_at: datetime
 
 
@@ -195,3 +212,22 @@ class TelemetryAck(BaseModel):
     accepted: bool
     duplicate: bool = False
     aggregate: WorkItemMetrics | None = None
+
+
+class CostEffectivenessGroup(BaseModel):
+    model: str
+    issue_type: str
+    attempted_issues: int
+    green_issues: int
+    autonomous_green_issues: int
+    total_spend_usd: float
+    cost_per_green_issue_usd: float | None = None
+    autonomous_cost_per_green_issue_usd: float | None = None
+    total_human_interruptions: int
+    interruptions_per_green_issue: float | None = None
+
+
+class CostEffectivenessReport(BaseModel):
+    repository: str
+    groups: list[CostEffectivenessGroup]
+    generated_at: datetime

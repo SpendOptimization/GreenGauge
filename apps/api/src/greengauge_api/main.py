@@ -12,6 +12,7 @@ from .db import Database
 from .models import (
     CodingSessionFinish,
     CodingSessionStart,
+    CostEffectivenessReport,
     GitHubIssueEvent,
     GitHubSyncResult,
     Issue,
@@ -231,6 +232,17 @@ def get_work_item_metrics(
     if not metrics:
         raise HTTPException(status_code=404, detail="Work item metrics not found")
     return metrics
+
+
+@app.get("/api/v1/metrics/cost-effectiveness", response_model=CostEffectivenessReport)
+def get_cost_effectiveness(
+    repository: str = Query(default=settings.github_repository),
+) -> CostEffectivenessReport:
+    return CostEffectivenessReport(
+        repository=repository,
+        groups=database.cost_effectiveness(repository),
+        generated_at=datetime.now(timezone.utc),
+    )
 
 
 @app.post("/api/v1/sessions/events", response_model=SessionRecord, dependencies=[Depends(verify_mcp_key)])

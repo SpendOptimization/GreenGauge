@@ -155,10 +155,17 @@ def test_turn_telemetry_aggregates_sessions_and_is_idempotent(tmp_path, monkeypa
             "source": "mcp",
             "metrics": {
                 "model_usage": [{
+                    "call_id": "call-1",
                     "model": "terra",
                     "input_tokens": 1000,
+                    "cached_input_tokens": 100,
+                    "cache_write_tokens": 100,
                     "output_tokens": 500,
+                    "reasoning_tokens": 200,
                 }],
+                "human_clarification_episode_ids": ["clarification-turn-1"],
+                "acceptance_tests_passed": True,
+                "regression_tests_passed": True,
                 "change_types": ["database"],
                 "extra": {"task_phase": "implementation"},
             },
@@ -178,7 +185,67 @@ def test_turn_telemetry_aggregates_sessions_and_is_idempotent(tmp_path, monkeypa
         assert metrics["ci_attempts"] == 1
         assert metrics["ci_failures"] == 1
         assert metrics["input_tokens"] == 1000
+        assert metrics["cached_input_tokens"] == 100
+        assert metrics["cache_write_tokens"] == 100
         assert metrics["output_tokens"] == 500
-        assert metrics["total_cost_usd"] == 0.001
+        assert metrics["reasoning_tokens"] == 200
+        assert metrics["total_cost_usd"] == 0.0009775
+        assert metrics["green"] is True
+        assert metrics["autonomous_green"] is False
+        assert metrics["human_interventions"] == 1
         assert metrics["change_types"] == ["backend", "database"]
         assert metrics["extra"]["task_phase"] == "implementation"
+
+        finish = {
+            "event_id": "finish-a",
+            "session_id": "codex-session-a",
+            "finished_at": "2026-08-23T12:02:00Z",
+            "outcome": "success",
+            "termination_reason": "green",
+            "final_metrics": {},
+        }
+        assert client.post(
+            "/api/v1/telemetry/sessions/codex-session-a/finish", json=finish
+        ).status_code == 200
+
+        failed_start = {
+            **start,
+            "session_id": "codex-session-failed",
+            "issue_number": 81,
+            "started_at": "2026-08-23T13:00:00Z",
+        }
+        assert client.post("/api/v1/telemetry/sessions/start", json=failed_start).status_code == 200
+        failed_turn = {
+            "event_id": "failed-turn",
+            "session_id": "codex-session-failed",
+            "turn_id": "turn-1",
+            "occurred_at": "2026-08-23T13:01:00Z",
+            "metrics": {"model_usage": [{"model": "terra", "input_tokens": 1000}]},
+        }
+        assert client.post(
+            "/api/v1/telemetry/sessions/codex-session-failed/turns", json=failed_turn
+        ).status_code == 200
+        failed_finish = {
+            "event_id": "finish-failed",
+            "session_id": "codex-session-failed",
+            "finished_at": "2026-08-23T13:02:00Z",
+            "outcome": "failed",
+            "termination_reason": "gave_up",
+            "final_metrics": {},
+        }
+        assert client.post(
+            "/api/v1/telemetry/sessions/codex-session-failed/finish", json=failed_finish
+        ).status_code == 200
+
+        report = client.get("/api/v1/metrics/cost-effectiveness").json()
+        group = next(
+            item for item in report["groups"]
+            if item["model"] == "terra" and item["issue_type"] == "uncategorized"
+        )
+        assert group["attempted_issues"] == 2
+        assert group["green_issues"] == 1
+        assert group["autonomous_green_issues"] == 0
+        assert group["total_spend_usd"] == 0.0012275
+        assert group["cost_per_green_issue_usd"] == 0.0012275
+        assert group["autonomous_cost_per_green_issue_usd"] is None
+        assert group["interruptions_per_green_issue"] == 1

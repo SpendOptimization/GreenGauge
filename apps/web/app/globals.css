@@ -36,6 +36,27 @@ h1 { max-width: 700px; margin: 14px 0 22px; font-family: Georgia, 'Times New Rom
 .summary-row span { color: var(--muted); font-size: 12px; }
 .summary-row.accent strong { color: var(--green); }
 
+.cost-section { max-width: 1320px; margin: 0 auto; padding: 46px 4vw 8px; }
+.cost-heading { display: flex; align-items: end; justify-content: space-between; gap: 32px; margin-bottom: 20px; }
+.cost-heading h2 { margin: 8px 0 6px; font-family: Georgia, serif; font-size: 31px; font-weight: 400; letter-spacing: -.7px; }
+.cost-heading p:not(.overline) { max-width: 620px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.completion-toggle { display: flex; padding: 3px; border: 1px solid var(--line); border-radius: 9px; background: #edf1eb; }
+.completion-toggle button { padding: 8px 11px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 11px; font-weight: 700; cursor: pointer; }
+.completion-toggle button.active { background: var(--white); color: var(--ink); box-shadow: 0 1px 3px rgba(20,35,20,.1); }
+.cost-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--white); }
+.cost-table { width: 100%; min-width: 850px; border-collapse: collapse; text-align: left; }
+.cost-table th { padding: 12px 18px; border-bottom: 1px solid var(--line); background: #fafbf8; color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .65px; text-transform: uppercase; }
+.cost-table td { padding: 16px 18px; border-bottom: 1px solid var(--line); }
+.cost-table tr:last-child td { border-bottom: 0; }
+.cost-table td strong, .cost-table td span { display: block; }
+.cost-table td strong { font-family: Georgia, serif; font-size: 17px; font-weight: 400; }
+.cost-table td span { margin-top: 4px; color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: .4px; }
+.cost-table td:first-child strong { font-family: Arial, Helvetica, sans-serif; font-size: 13px; font-weight: 800; }
+.cost-empty { padding: 28px; display: flex; flex-direction: column; gap: 6px; border: 1px dashed #b9c1b6; border-radius: 14px; background: rgba(255,255,255,.55); }
+.cost-empty strong { font-family: Georgia, serif; font-size: 19px; font-weight: 400; }
+.cost-empty span, .cost-footnote { color: var(--muted); font-size: 10px; }
+.cost-footnote { margin: 10px 2px 0; }
+
 .queue-header { max-width: 1320px; margin: 0 auto; padding: 44px 4vw 22px; display: flex; align-items: end; justify-content: space-between; }
 .queue-header h2 { margin: 0 0 6px; font-size: 21px; letter-spacing: -.5px; }.queue-header p { margin: 0; color: var(--muted); font-size: 12px; }
 .queue-header button { padding: 9px 13px; border: 1px solid var(--line); border-radius: 8px; background: var(--white); color: var(--ink); font-size: 12px; font-weight: 600; }
@@ -63,6 +84,7 @@ h1 { max-width: 700px; margin: 14px 0 22px; font-family: Georgia, 'Times New Rom
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 20px 0; }
 .metric-grid div { display: flex; flex-direction: column; gap: 4px; }.metric-grid strong { font-family: Georgia, serif; font-size: 18px; font-weight: 400; }.metric-grid span { color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: .55px; }
+.evidence-note { margin: 0; padding-top: 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; line-height: 1.45; }
 .similar-list { padding-top: 16px; border-top: 1px solid var(--line); display: grid; gap: 8px; }
 .similar-list .eyebrow { margin-bottom: 2px; }.similar-list a { display: flex; justify-content: space-between; color: var(--muted); font-size: 10px; text-decoration: none; }.similar-list a:hover { color: var(--green); }.similar-list strong { color: var(--ink); font-weight: 600; }
 .empty-state { padding: 70px; border: 1px dashed #b9c1b6; border-radius: 14px; text-align: center; background: rgba(255,255,255,.5); }.empty-state > span { color: #9a4b42; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }.empty-state h2 { max-width: 520px; margin: 16px auto; font-family: Georgia, serif; font-weight: 400; }.empty-state code { color: var(--muted); font-size: 11px; }
@@ -71,12 +93,13 @@ footer { padding: 24px 4.5vw; border-top: 1px solid var(--line); display: flex; 
 @media (max-width: 850px) {
   .topbar { grid-template-columns: 1fr auto; }.repo-pill { display: none; }
   .hero { grid-template-columns: 1fr; padding-top: 52px; }.summary-card { max-width: none; }
+  .cost-heading { align-items: start; flex-direction: column; }
   h1 { letter-spacing: -2.5px; }
   .issue-card { grid-template-columns: 1fr; }.recommendation-panel { border-left: 0; border-top: 1px solid var(--line); }
 }
 
 @media (max-width: 540px) {
-  .hero { padding: 42px 22px; }.queue-header, .issue-list { padding-left: 18px; padding-right: 18px; }.queue-header p { display: none; }
+  .hero { padding: 42px 22px; }.queue-header, .issue-list, .cost-section { padding-left: 18px; padding-right: 18px; }.queue-header p { display: none; }
   .issue-main, .recommendation-panel { padding: 22px; }.issue-title { font-size: 22px; }
   footer { gap: 20px; flex-direction: column; }
 }
