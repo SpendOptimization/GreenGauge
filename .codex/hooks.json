@@ -1,0 +1,63 @@
+{
+  "description": "Send privacy-preserving incremental Codex telemetry to the local GreenGauge API.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/apps/codex-mcp/hooks/telemetry_hook.py\" session_start",
+            "timeout": 10,
+            "additionalContextLimit": 500
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/apps/codex-mcp/hooks/telemetry_hook.py\" prompt",
+            "timeout": 5,
+            "additionalContextLimit": 500
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/apps/codex-mcp/hooks/telemetry_hook.py\" tool",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/apps/codex-mcp/hooks/telemetry_hook.py\" stop",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/apps/codex-mcp/hooks/telemetry_hook.py\" session_end",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

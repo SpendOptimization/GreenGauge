@@ -10,6 +10,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import get_settings
 from .db import Database
 from .models import (
+    CodingSessionFinish,
+    CodingSessionStart,
+    CostEffectivenessReport,
     GitHubIssueEvent,
     GitHubSyncResult,
     Issue,
@@ -17,15 +20,21 @@ from .models import (
     Recommendation,
     SessionEvent,
     SessionRecord,
+    TelemetryAck,
+    TurnTelemetry,
+    WorkItemMetrics,
 )
 from .seed import seed_if_empty
+from .services.categorization import classify_issue
 from .services.github import GitHubClient
+from .services.pricing import ModelPricingCatalog
 from .services.recommendation import RecommendationEngine
 
 settings = get_settings()
 database = Database(settings.database_file)
 engine = RecommendationEngine()
 github_client = GitHubClient(settings.github_token)
+pricing = ModelPricingCatalog.from_json(settings.model_pricing_json)
 
 
 @asynccontextmanager
@@ -95,6 +104,7 @@ async def sync_github_issues() -> GitHubSyncResult:
             labels=[label.name for label in github_issue.labels],
             html_url=github_issue.html_url,
             created_at=github_issue.created_at,
+            issue_type=classify_issue([label.name for label in github_issue.labels]),
         )
         database.upsert_issue(issue, settings.github_repository)
         current_numbers.append(issue.number)
@@ -140,17 +150,99 @@ async def github_webhook(
         return {"status": "ignored", "issue_number": 0}
 
     event = GitHubIssueEvent.model_validate_json(payload)
-    if event.action != "opened":
+    if event.action not in {"opened", "labeled", "unlabeled", "edited"}:
         return {"status": "ignored", "issue_number": event.issue.number}
 
+    labels = [label.name for label in event.issue.labels]
     issue = Issue(
         id=event.issue.id, number=event.issue.number, title=event.issue.title, body=event.issue.body or "",
-        state=event.issue.state, author=event.issue.user.login, labels=[label.name for label in event.issue.labels],
+        state=event.issue.state, author=event.issue.user.login, labels=labels,
         html_url=event.issue.html_url, created_at=event.issue.created_at,
+        issue_type=classify_issue(labels),
     )
+    existing = database.get_issue(issue.number)
     database.upsert_issue(issue, event.repository.full_name)
-    database.save_recommendation(issue.number, engine.recommend(issue))
-    return {"status": "recommended", "issue_number": issue.number}
+    if event.action == "opened":
+        if existing and existing.recommendation:
+            return {"status": "cached", "issue_number": issue.number}
+        database.save_recommendation(issue.number, engine.recommend(issue))
+        return {"status": "recommended", "issue_number": issue.number}
+    return {"status": "metadata_updated", "issue_number": issue.number}
+
+
+@app.post(
+    "/api/v1/telemetry/sessions/start",
+    response_model=TelemetryAck,
+    dependencies=[Depends(verify_mcp_key)],
+)
+def start_coding_session(event: CodingSessionStart) -> TelemetryAck:
+    try:
+        return database.start_coding_session(event)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post(
+    "/api/v1/telemetry/sessions/{session_id}/turns",
+    response_model=TelemetryAck,
+    dependencies=[Depends(verify_mcp_key)],
+)
+def record_turn_telemetry(session_id: str, event: TurnTelemetry) -> TelemetryAck:
+    if event.session_id != session_id:
+        raise HTTPException(status_code=422, detail="Path and payload session IDs differ")
+    try:
+        return database.record_turn(event, pricing)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post(
+    "/api/v1/telemetry/sessions/{session_id}/finish",
+    response_model=TelemetryAck,
+    dependencies=[Depends(verify_mcp_key)],
+)
+def finish_coding_session(session_id: str, event: CodingSessionFinish) -> TelemetryAck:
+    if event.session_id != session_id:
+        raise HTTPException(status_code=422, detail="Path and payload session IDs differ")
+    try:
+        return database.finish_coding_session(event, pricing)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get(
+    "/api/v1/metrics/work-items",
+    response_model=list[WorkItemMetrics],
+    dependencies=[Depends(verify_mcp_key)],
+)
+def list_work_item_metrics(repository: str | None = None) -> list[WorkItemMetrics]:
+    return database.list_work_item_metrics(repository)
+
+
+@app.get(
+    "/api/v1/metrics/work-items/{issue_number}",
+    response_model=WorkItemMetrics,
+    dependencies=[Depends(verify_mcp_key)],
+)
+def get_work_item_metrics(
+    issue_number: int,
+    repository: str = Query(default=settings.github_repository),
+) -> WorkItemMetrics:
+    metrics = database.get_work_item_metrics(repository, issue_number)
+    if not metrics:
+        raise HTTPException(status_code=404, detail="Work item metrics not found")
+    return metrics
+
+
+@app.get("/api/v1/metrics/cost-effectiveness", response_model=CostEffectivenessReport)
+def get_cost_effectiveness(
+    repository: str = Query(default=settings.github_repository),
+) -> CostEffectivenessReport:
+    return CostEffectivenessReport(
+        repository=repository,
+        groups=database.cost_effectiveness(repository),
+        generated_at=datetime.now(timezone.utc),
+    )
 
 
 @app.post("/api/v1/sessions/events", response_model=SessionRecord, dependencies=[Depends(verify_mcp_key)])

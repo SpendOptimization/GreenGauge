@@ -1,5 +1,6 @@
-import { getIssues } from "@/lib/api";
-import type { Issue, Recommendation } from "@/lib/types";
+import { getCostEffectiveness, getIssues } from "@/lib/api";
+import type { CostEffectivenessGroup, Issue, Recommendation } from "@/lib/types";
+import { CostTable } from "./cost-table";
 import { SyncButton } from "./sync-button";
 
 function formatMoney(value: number) {
@@ -20,8 +21,11 @@ function ModelBadge({ recommendation }: { recommendation: Recommendation | null 
   );
 }
 
-function IssueCard({ issue }: { issue: Issue }) {
+function IssueCard({ issue, costGroups }: { issue: Issue; costGroups: CostEffectivenessGroup[] }) {
   const recommendation = issue.recommendation;
+  const evidence = recommendation
+    ? costGroups.find((group) => group.model.toLowerCase() === recommendation.model.toLowerCase())
+    : undefined;
   return (
     <article className="issue-card">
       <div className="issue-main">
@@ -36,7 +40,9 @@ function IssueCard({ issue }: { issue: Issue }) {
         {recommendation && (
           <div className="reasoning">
             <span className="spark">✦</span>
-            <p>{recommendation.reasoning}</p>
+            <p>{evidence
+              ? recommendation.reasoning
+              : "Preliminary complexity route only. No completed cost evidence exists for this model yet."}</p>
           </div>
         )}
       </div>
@@ -47,19 +53,14 @@ function IssueCard({ issue }: { issue: Issue }) {
         {recommendation && (
           <>
             <div className="metric-grid">
-              <div><strong>{Math.round(recommendation.confidence * 100)}%</strong><span>confidence</span></div>
-              <div><strong>{formatMoney(recommendation.expected_cost_usd)}</strong><span>expected</span></div>
-              <div><strong>{recommendation.expected_iterations}</strong><span>iterations</span></div>
+              <div><strong>{evidence ? "Evidence" : "Heuristic"}</strong><span>routing basis</span></div>
+              <div>
+                <strong>{evidence?.cost_per_green_issue_usd == null ? "N/A" : formatMoney(evidence.cost_per_green_issue_usd)}</strong>
+                <span>historical CPGI</span>
+              </div>
+              <div><strong>{evidence ? `${evidence.green_issues}/${evidence.attempted_issues}` : "0/0"}</strong><span>green / attempted</span></div>
             </div>
-            <div className="similar-list">
-              <span className="eyebrow">Closest prior work</span>
-              {recommendation.similar_issues.slice(0, 2).map((similar) => (
-                <a href={similar.url} target="_blank" rel="noreferrer" key={similar.number}>
-                  <span>#{similar.number} · {similar.model_used}</span>
-                  <strong>{formatMoney(similar.total_cost_usd)}</strong>
-                </a>
-              ))}
-            </div>
+            {!evidence && <p className="evidence-note">No completed runs for this model yet.</p>}
           </>
         )}
       </div>
@@ -68,10 +69,10 @@ function IssueCard({ issue }: { issue: Issue }) {
 }
 
 export default async function Home() {
-  const data = await getIssues();
-  const recommendations = data.issues.flatMap((issue) => issue.recommendation ? [issue.recommendation] : []);
-  const projectedSpend = recommendations.reduce((sum, recommendation) => sum + recommendation.expected_cost_usd, 0);
-  const premiumAvoided = recommendations.filter((recommendation) => recommendation.model_class !== "frontier").length;
+  const [data, costReport] = await Promise.all([getIssues(), getCostEffectiveness()]);
+  const historicalSpend = costReport.groups.reduce((sum, group) => sum + group.total_spend_usd, 0);
+  const attempted = costReport.groups.reduce((sum, group) => sum + group.attempted_issues, 0);
+  const green = costReport.groups.reduce((sum, group) => sum + group.green_issues, 0);
 
   return (
     <main>
@@ -85,15 +86,17 @@ export default async function Home() {
         <div>
           <p className="overline">MODEL ROUTING / ISSUE QUEUE</p>
           <h1>Spend intelligence<br />for every issue.</h1>
-          <p className="hero-copy">Pick the model that minimizes total cost—not just token price—before a developer starts the work.</p>
+          <p className="hero-copy">Route new work using observed cost per successful issue—not a speculative per-ticket dollar forecast.</p>
         </div>
         <div className="summary-card">
           <span className="eyebrow">Current queue</span>
           <div className="summary-row"><strong>{data.total}</strong><span>open issues</span></div>
-          <div className="summary-row"><strong>{formatMoney(projectedSpend)}</strong><span>projected AI spend</span></div>
-          <div className="summary-row accent"><strong>{premiumAvoided}</strong><span>premium routes avoided</span></div>
+          <div className="summary-row"><strong>{formatMoney(historicalSpend)}</strong><span>completed-run spend</span></div>
+          <div className="summary-row accent"><strong>{green} / {attempted}</strong><span>green / attempted</span></div>
         </div>
       </section>
+
+      <CostTable groups={costReport.groups} />
 
       <section className="queue-header">
         <div><h2>Recommendation queue</h2><p>Cached at issue creation · refreshes from the webhook</p></div>
@@ -104,7 +107,9 @@ export default async function Home() {
       </section>
 
       <section className="issue-list">
-        {data.issues.length > 0 ? data.issues.map((issue) => <IssueCard issue={issue} key={issue.id} />) : (
+        {data.issues.length > 0 ? data.issues.map((issue) => (
+          <IssueCard issue={issue} costGroups={costReport.groups} key={issue.id} />
+        )) : (
           <div className="empty-state">
             <span>API offline</span>
             <h2>Start the GreenGauge API to load the seeded issue queue.</h2>
@@ -113,7 +118,7 @@ export default async function Home() {
         )}
       </section>
 
-      <footer><span>GreenGauge prototype</span><span>Recommendations are estimates · verify before routing production work</span></footer>
+      <footer><span>GreenGauge prototype</span><span>Cost metrics use completed runs only · no projected dollar cost</span></footer>
     </main>
   );
 }
