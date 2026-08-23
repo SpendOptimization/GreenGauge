@@ -321,6 +321,8 @@ def main() -> None:
             "repository": repository,
             "issue_number": issue_number,
             "model": incoming.get("model"),
+            "model_snapshot": incoming.get("model"),
+            "reasoning_effort": incoming.get("reasoning_effort") or incoming.get("reasoningEffort"),
             "branch": branch or None,
             "started_at": state["started_at"],
             "source": "codex-hook",

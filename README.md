@@ -22,6 +22,20 @@ Next.js dashboard ──GET /api/v1/issues──▶ FastAPI/SQLite
 
 The dashboard reads cached recommendations; it never runs recommendation inference during page load.
 
+## Recommendation engine
+
+Add `OPENAI_API_KEY` to the repository-root `.env` to enable semantic analysis. GreenGauge uses pinned `gpt-5-nano-2025-08-07` structured output for the five-part complexity rubric and `text-embedding-3-small` for description embeddings. Without a key or when OpenAI is unavailable, it stores an explicitly marked local heuristic analysis and never invents an embedding.
+
+At issue creation or whenever its labels/body change, the API:
+
+1. separates actionable labels (`accessibility`, `bug`, `documentation`, `enhancement`) from routing and disposition labels;
+2. excludes questions, duplicates, invalid, and wontfix issues from benchmark routing;
+3. stores acceptance criteria, embeddings, the five rubric scores, model/prompt/rubric versions, confidence, and evidence;
+4. scores historical issues as 30% actionable-label Jaccard overlap, 50% embedding cosine similarity, and 20% complexity similarity;
+5. recommends the lowest similarity-weighted cost-per-green `(model, reasoning effort)` combination meeting the configured success threshold.
+
+Comparable issues below `GREENGAUGE_RECOMMENDATION_MIN_SIMILARITY` are ignored. If no issue clears that threshold, GreenGauge uses global completed-run evidence; if no completed evidence exists, it returns an explicitly labeled complexity-only route. Recommendations are cached in SQLite, and projected per-ticket dollar cost remains intentionally absent.
+
 ## Run locally
 
 Requirements: Node 20+, Python 3.9+, and `uv`.
@@ -103,6 +117,7 @@ npm --workspace @greengauge/codex-mcp run build
 - `GET /health`
 - `GET /api/v1/issues`
 - `GET /api/v1/issues/{issue_number}`
+- `GET /api/v1/issues/{issue_number}/analysis`
 - `POST /api/v1/github/webhooks`
 - `POST /api/v1/github/sync`
 - `POST /api/v1/recommendations/{issue_number}/refresh`

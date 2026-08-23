@@ -1,5 +1,5 @@
 import { getCostEffectiveness, getIssues } from "@/lib/api";
-import type { CostEffectivenessGroup, Issue, Recommendation } from "@/lib/types";
+import type { Issue, Recommendation } from "@/lib/types";
 import { CostTable } from "./cost-table";
 import { SyncButton } from "./sync-button";
 
@@ -21,11 +21,8 @@ function ModelBadge({ recommendation }: { recommendation: Recommendation | null 
   );
 }
 
-function IssueCard({ issue, costGroups }: { issue: Issue; costGroups: CostEffectivenessGroup[] }) {
+function IssueCard({ issue }: { issue: Issue }) {
   const recommendation = issue.recommendation;
-  const evidence = recommendation
-    ? costGroups.find((group) => group.model.toLowerCase() === recommendation.model.toLowerCase())
-    : undefined;
   return (
     <article className="issue-card">
       <div className="issue-main">
@@ -40,9 +37,7 @@ function IssueCard({ issue, costGroups }: { issue: Issue; costGroups: CostEffect
         {recommendation && (
           <div className="reasoning">
             <span className="spark">✦</span>
-            <p>{evidence
-              ? recommendation.reasoning
-              : "Preliminary complexity route only. No completed cost evidence exists for this model yet."}</p>
+            <p>{recommendation.reasoning}</p>
           </div>
         )}
       </div>
@@ -53,14 +48,29 @@ function IssueCard({ issue, costGroups }: { issue: Issue; costGroups: CostEffect
         {recommendation && (
           <>
             <div className="metric-grid">
-              <div><strong>{evidence ? "Evidence" : "Heuristic"}</strong><span>routing basis</span></div>
+              <div><strong>{recommendation.recommendation_basis.replaceAll("-", " ")}</strong><span>routing basis</span></div>
               <div>
-                <strong>{evidence?.cost_per_green_issue_usd == null ? "N/A" : formatMoney(evidence.cost_per_green_issue_usd)}</strong>
-                <span>historical CPGI</span>
+                <strong>{recommendation.similarity_weighted_cpgi_usd == null
+                  ? "N/A"
+                  : formatMoney(recommendation.similarity_weighted_cpgi_usd)}</strong>
+                <span>evidence CPGI</span>
               </div>
-              <div><strong>{evidence ? `${evidence.green_issues}/${evidence.attempted_issues}` : "0/0"}</strong><span>green / attempted</span></div>
+              <div><strong>{recommendation.complexity_score == null
+                ? "N/A"
+                : `${recommendation.complexity_score}/10`}</strong><span>{recommendation.complexity_class || "complexity"}</span></div>
             </div>
-            {!evidence && <p className="evidence-note">No completed runs for this model yet.</p>}
+            <p className="evidence-note">Effort: {recommendation.reasoning_effort} · confidence {Math.round(recommendation.confidence * 100)}%</p>
+            {recommendation.similar_issues.length > 0 && (
+              <div className="similar-list">
+                <span className="eyebrow">Comparable completed work</span>
+                {recommendation.similar_issues.map((similar) => (
+                  <a href={similar.url} target="_blank" rel="noreferrer" key={similar.number}>
+                    <span>#{similar.number} {similar.title}</span>
+                    <strong>{similar.similarity}%</strong>
+                  </a>
+                ))}
+              </div>
+            )}
           </>
         )}
       </div>
@@ -108,7 +118,7 @@ export default async function Home() {
 
       <section className="issue-list">
         {data.issues.length > 0 ? data.issues.map((issue) => (
-          <IssueCard issue={issue} costGroups={costReport.groups} key={issue.id} />
+          <IssueCard issue={issue} key={issue.id} />
         )) : (
           <div className="empty-state">
             <span>API offline</span>

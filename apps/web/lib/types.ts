@@ -5,6 +5,9 @@ export type SimilarIssue = {
   total_cost_usd: number;
   similarity: number;
   url: string;
+  type_match: number;
+  description_similarity: number;
+  complexity_similarity: number;
 };
 
 export type Recommendation = {
@@ -13,6 +16,12 @@ export type Recommendation = {
   confidence: number;
   expected_cost_usd: number;
   expected_iterations: number;
+  reasoning_effort: string;
+  similarity_weighted_cpgi_usd: number | null;
+  weighted_success_rate: number | null;
+  complexity_score: number | null;
+  complexity_class: string | null;
+  recommendation_basis: string;
   reasoning: string;
   status: string;
   generated_at: string;

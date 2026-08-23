@@ -10,6 +10,7 @@ from .models import (
     CodingSessionStart,
     CostEffectivenessGroup,
     Issue,
+    IssueAnalysis,
     Recommendation,
     SessionEvent,
     SessionRecord,
@@ -41,6 +42,35 @@ CREATE TABLE IF NOT EXISTS recommendations (
     issue_number INTEGER PRIMARY KEY,
     payload_json TEXT NOT NULL,
     generated_at TEXT NOT NULL,
+    FOREIGN KEY(issue_number) REFERENCES issues(number) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS issue_analysis (
+    issue_number INTEGER PRIMARY KEY,
+    repository TEXT NOT NULL,
+    acceptance_criteria TEXT NOT NULL DEFAULT '',
+    github_labels_json TEXT NOT NULL DEFAULT '[]',
+    actionable_labels_json TEXT NOT NULL DEFAULT '[]',
+    routing_labels_json TEXT NOT NULL DEFAULT '[]',
+    disposition_label TEXT,
+    benchmark_eligible INTEGER NOT NULL DEFAULT 0,
+    issue_text TEXT NOT NULL,
+    embedding_json TEXT,
+    embedding_model TEXT,
+    embedding_model_version TEXT,
+    scope_score INTEGER NOT NULL,
+    solution_uncertainty_score INTEGER NOT NULL,
+    public_interface_score INTEGER NOT NULL,
+    risk_compatibility_score INTEGER NOT NULL,
+    testing_burden_score INTEGER NOT NULL,
+    complexity_score INTEGER NOT NULL,
+    complexity_class TEXT NOT NULL,
+    classifier_model TEXT NOT NULL,
+    classifier_prompt_version TEXT NOT NULL,
+    rubric_version TEXT NOT NULL,
+    classifier_confidence REAL NOT NULL,
+    classification_evidence_json TEXT NOT NULL DEFAULT '{}',
+    analyzed_at TEXT NOT NULL,
     FOREIGN KEY(issue_number) REFERENCES issues(number) ON DELETE CASCADE
 );
 
@@ -95,6 +125,8 @@ CREATE TABLE IF NOT EXISTS coding_sessions (
     pr_number INTEGER,
     pr_url TEXT,
     model TEXT,
+    model_snapshot TEXT,
+    reasoning_effort TEXT,
     branch TEXT,
     source TEXT NOT NULL,
     started_at TEXT NOT NULL,
@@ -145,6 +177,7 @@ CREATE TABLE IF NOT EXISTS session_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_issues_state_created_at ON issues(state, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_analysis_repository_eligible ON issue_analysis(repository, benchmark_eligible);
 CREATE INDEX IF NOT EXISTS idx_work_item_repository_issue ON work_item_metrics(repository, issue_number);
 CREATE INDEX IF NOT EXISTS idx_work_item_repository_pr ON work_item_metrics(repository, pr_number);
 CREATE INDEX IF NOT EXISTS idx_coding_sessions_work_item ON coding_sessions(work_item_id, started_at);
@@ -194,6 +227,8 @@ class Database:
                 "regression_tests_passed": "INTEGER NOT NULL DEFAULT 0",
                 "green": "INTEGER NOT NULL DEFAULT 0",
                 "termination_reason": "TEXT",
+                "model_snapshot": "TEXT",
+                "reasoning_effort": "TEXT",
             })
             now = datetime.now(timezone.utc).isoformat()
             connection.execute(
@@ -273,6 +308,98 @@ class Database:
                 (issue_number, recommendation.model_dump_json(), recommendation.generated_at.isoformat()),
             )
 
+    def save_issue_analysis(self, analysis: IssueAnalysis) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO issue_analysis(
+                    issue_number, repository, acceptance_criteria, github_labels_json,
+                    actionable_labels_json, routing_labels_json, disposition_label,
+                    benchmark_eligible, issue_text, embedding_json, embedding_model,
+                    embedding_model_version, scope_score, solution_uncertainty_score,
+                    public_interface_score, risk_compatibility_score, testing_burden_score,
+                    complexity_score, complexity_class, classifier_model,
+                    classifier_prompt_version, rubric_version, classifier_confidence,
+                    classification_evidence_json, analyzed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(issue_number) DO UPDATE SET
+                    repository=excluded.repository,
+                    acceptance_criteria=excluded.acceptance_criteria,
+                    github_labels_json=excluded.github_labels_json,
+                    actionable_labels_json=excluded.actionable_labels_json,
+                    routing_labels_json=excluded.routing_labels_json,
+                    disposition_label=excluded.disposition_label,
+                    benchmark_eligible=excluded.benchmark_eligible,
+                    issue_text=excluded.issue_text,
+                    embedding_json=excluded.embedding_json,
+                    embedding_model=excluded.embedding_model,
+                    embedding_model_version=excluded.embedding_model_version,
+                    scope_score=excluded.scope_score,
+                    solution_uncertainty_score=excluded.solution_uncertainty_score,
+                    public_interface_score=excluded.public_interface_score,
+                    risk_compatibility_score=excluded.risk_compatibility_score,
+                    testing_burden_score=excluded.testing_burden_score,
+                    complexity_score=excluded.complexity_score,
+                    complexity_class=excluded.complexity_class,
+                    classifier_model=excluded.classifier_model,
+                    classifier_prompt_version=excluded.classifier_prompt_version,
+                    rubric_version=excluded.rubric_version,
+                    classifier_confidence=excluded.classifier_confidence,
+                    classification_evidence_json=excluded.classification_evidence_json,
+                    analyzed_at=excluded.analyzed_at
+                """,
+                (
+                    analysis.issue_number, analysis.repository, analysis.acceptance_criteria,
+                    json.dumps(analysis.github_labels), json.dumps(analysis.actionable_labels),
+                    json.dumps(analysis.routing_labels), analysis.disposition_label,
+                    int(analysis.benchmark_eligible), analysis.issue_text,
+                    json.dumps(analysis.embedding) if analysis.embedding is not None else None,
+                    analysis.embedding_model, analysis.embedding_model_version,
+                    analysis.scope_score, analysis.solution_uncertainty_score,
+                    analysis.public_interface_score, analysis.risk_compatibility_score,
+                    analysis.testing_burden_score, analysis.complexity_score,
+                    analysis.complexity_class, analysis.classifier_model,
+                    analysis.classifier_prompt_version, analysis.rubric_version,
+                    analysis.classifier_confidence, json.dumps(analysis.classification_evidence),
+                    analysis.analyzed_at.isoformat(),
+                ),
+            )
+
+    def get_issue_analysis(
+        self, issue_number: int, repository: str | None = None
+    ) -> IssueAnalysis | None:
+        with self.connect() as connection:
+            row = (
+                connection.execute(
+                    "SELECT * FROM issue_analysis WHERE repository=? AND issue_number=?",
+                    (repository, issue_number),
+                ).fetchone()
+                if repository
+                else connection.execute(
+                    "SELECT * FROM issue_analysis WHERE issue_number=?", (issue_number,)
+                ).fetchone()
+            )
+        return self._issue_analysis_from_row(row) if row else None
+
+    def historical_issue_runs(self, repository: str, exclude_issue_number: int) -> list[dict]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT a.*, i.title, i.html_url, s.model, s.model_snapshot,
+                       COALESCE(s.reasoning_effort, 'unknown') AS reasoning_effort,
+                       s.total_cost_usd, s.green, s.human_interventions,
+                       s.termination_reason, s.session_id
+                FROM issue_analysis a
+                JOIN issues i ON i.number=a.issue_number AND i.repository=a.repository
+                JOIN work_item_metrics w ON w.issue_number=a.issue_number AND w.repository=a.repository
+                JOIN coding_sessions s ON s.work_item_id=w.id
+                WHERE a.repository=? AND a.issue_number<>? AND a.benchmark_eligible=1
+                  AND s.model IS NOT NULL AND s.finished_at IS NOT NULL
+                """,
+                (repository, exclude_issue_number),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def list_issues(self, state: str = "open") -> list[Issue]:
         with self.connect() as connection:
             rows = connection.execute(
@@ -325,12 +452,13 @@ class Database:
                     """
                     INSERT INTO coding_sessions(
                         session_id, work_item_id, repository, issue_number, pr_number, pr_url,
-                        model, branch, source, started_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        model, model_snapshot, reasoning_effort, branch, source, started_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         event.session_id, work_item_id, event.repository, event.issue_number,
-                        event.pr_number, event.pr_url, event.model, event.branch, event.source,
+                        event.pr_number, event.pr_url, event.model, event.model_snapshot,
+                        event.reasoning_effort, event.branch, event.source,
                         event.started_at.isoformat(),
                     ),
                 )
@@ -367,12 +495,15 @@ class Database:
                     UPDATE coding_sessions SET
                         work_item_id=COALESCE(?, work_item_id),
                         issue_number=COALESCE(issue_number, ?), pr_number=COALESCE(pr_number, ?),
-                        pr_url=COALESCE(pr_url, ?), model=COALESCE(model, ?), branch=COALESCE(branch, ?)
+                        pr_url=COALESCE(pr_url, ?), model=COALESCE(model, ?),
+                        model_snapshot=COALESCE(model_snapshot, ?),
+                        reasoning_effort=COALESCE(reasoning_effort, ?), branch=COALESCE(branch, ?)
                     WHERE session_id = ?
                     """,
                     (
                         work_item_id, event.issue_number, event.pr_number, event.pr_url,
-                        event.model, event.branch, event.session_id,
+                        event.model, event.model_snapshot, event.reasoning_effort,
+                        event.branch, event.session_id,
                     ),
                 )
                 if previously_unbound or changing_work_item:
@@ -868,6 +999,33 @@ class Database:
             state=row["state"], author=row["author"], labels=json.loads(row["labels_json"]),
             issue_type=row["issue_type"], html_url=row["html_url"], created_at=row["created_at"],
             recommendation=recommendation,
+        )
+
+    @staticmethod
+    def _issue_analysis_from_row(row: sqlite3.Row) -> IssueAnalysis:
+        return IssueAnalysis(
+            issue_number=row["issue_number"], repository=row["repository"],
+            acceptance_criteria=row["acceptance_criteria"],
+            github_labels=json.loads(row["github_labels_json"]),
+            actionable_labels=json.loads(row["actionable_labels_json"]),
+            routing_labels=json.loads(row["routing_labels_json"]),
+            disposition_label=row["disposition_label"],
+            benchmark_eligible=bool(row["benchmark_eligible"]), issue_text=row["issue_text"],
+            embedding=json.loads(row["embedding_json"]) if row["embedding_json"] else None,
+            embedding_model=row["embedding_model"],
+            embedding_model_version=row["embedding_model_version"],
+            scope_score=row["scope_score"],
+            solution_uncertainty_score=row["solution_uncertainty_score"],
+            public_interface_score=row["public_interface_score"],
+            risk_compatibility_score=row["risk_compatibility_score"],
+            testing_burden_score=row["testing_burden_score"],
+            complexity_score=row["complexity_score"], complexity_class=row["complexity_class"],
+            classifier_model=row["classifier_model"],
+            classifier_prompt_version=row["classifier_prompt_version"],
+            rubric_version=row["rubric_version"],
+            classifier_confidence=row["classifier_confidence"],
+            classification_evidence=json.loads(row["classification_evidence_json"]),
+            analyzed_at=row["analyzed_at"],
         )
 
     @staticmethod

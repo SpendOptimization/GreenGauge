@@ -16,5 +16,4 @@ def seed_if_empty(database: Database, engine: RecommendationEngine, repository: 
     ]
     for issue in issues:
         database.upsert_issue(issue, repository)
-        database.save_recommendation(issue.number, engine.recommend(issue))
-
+        database.save_recommendation(issue.number, engine.recommend(issue, repository))
