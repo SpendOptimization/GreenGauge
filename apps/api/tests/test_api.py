@@ -127,6 +127,8 @@ def test_openai_issue_analysis_parses_structured_output_and_embedding(monkeypatc
             return self.payload
 
     class FakeClient:
+        response_request = None
+
         def __init__(self, **_kwargs):
             pass
 
@@ -136,8 +138,9 @@ def test_openai_issue_analysis_parses_structured_output_and_embedding(monkeypatc
         def __exit__(self, *_args):
             pass
 
-        def post(self, url, **_kwargs):
+        def post(self, url, **kwargs):
             if url.endswith("/responses"):
+                FakeClient.response_request = kwargs["json"]
                 return FakeResponse({
                     "model": "gpt-5-nano-2025-08-07",
                     "output": [{"content": [{"type": "output_text", "text": json.dumps(assessment)}]}],
@@ -157,6 +160,8 @@ def test_openai_issue_analysis_parses_structured_output_and_embedding(monkeypatc
     assert analysis.complexity_class == "Medium"
     assert analysis.embedding == [0.1, 0.2]
     assert analysis.classifier_model == "gpt-5-nano-2025-08-07"
+    assert FakeClient.response_request["reasoning"] == {"effort": "minimal"}
+    assert FakeClient.response_request["max_output_tokens"] == 1000
     assert analysis.actionable_labels == ["enhancement"]
     assert analysis.routing_labels == ["good first issue"]
 

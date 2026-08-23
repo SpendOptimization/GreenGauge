@@ -136,7 +136,11 @@ class IssueAnalyzer:
                     json={
                         "model": self.classifier_model,
                         "input": prompt,
-                        "max_output_tokens": 700,
+                        # GPT-5 nano otherwise uses the entire small output budget for
+                        # hidden reasoning and can return an incomplete response with no
+                        # structured JSON. Minimal effort is sufficient for this rubric.
+                        "reasoning": {"effort": "minimal"},
+                        "max_output_tokens": 1000,
                         "store": False,
                         "text": {"format": {
                             "type": "json_schema", "name": "issue_complexity",
