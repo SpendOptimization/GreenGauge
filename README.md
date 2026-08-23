@@ -61,7 +61,7 @@ Use **Sync GitHub** on the dashboard once to import the repository's existing op
 
 ## Connect Codex metrics
 
-The project-scoped `.codex/config.toml` registers the STDIO MCP server, while `.codex/hooks.json` provides deterministic lifecycle capture. After installing dependencies and starting the API, restart Codex in this repository, run `/hooks`, and approve the project hooks once. Codex then runs these automatically:
+The project-scoped `.codex/config.toml` registers the STDIO MCP server directly from source, while `.codex/hooks.json` provides deterministic lifecycle capture. After installing dependencies and starting the API, restart Codex in this repository, run `/hooks`, and approve the project hooks once. Codex then runs these automatically:
 
 - `SessionStart` creates or resumes a session record.
 - `UserPromptSubmit` identifies the current turn and counts prompts after the first as a human-intervention proxy.
