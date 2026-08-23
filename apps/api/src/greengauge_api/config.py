@@ -22,6 +22,11 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("GITHUB_WEBHOOK_SECRET", "GREENGAUGE_GITHUB_WEBHOOK_SECRET"),
     )
     mcp_api_key: str | None = None
+    model_pricing_json: str = (
+        '{"terra":{"input":0.25,"cached_input":0.025,"output":1.5},'
+        '"sonnet":{"input":3.0,"cached_input":0.3,"output":15.0},'
+        '"sol":{"input":2.5,"cached_input":0.25,"output":15.0}}'
+    )
 
     model_config = SettingsConfigDict(
         env_prefix="GREENGAUGE_",
