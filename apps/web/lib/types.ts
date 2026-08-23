@@ -35,7 +35,7 @@ export type Issue = {
 
 export type CostEffectivenessGroup = {
   model: string;
-  issue_type: string;
+  issue_type_counts: Record<string, number>;
   attempted_issues: number;
   green_issues: number;
   autonomous_green_issues: number;

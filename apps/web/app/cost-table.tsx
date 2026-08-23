@@ -51,7 +51,7 @@ export function CostTable({ groups }: { groups: CostEffectivenessGroup[] }) {
           <table className="cost-table">
             <thead>
               <tr>
-                <th>Model / issue type</th>
+                <th>Model / completed work mix</th>
                 <th>Cost per green</th>
                 <th>Interruptions / green</th>
                 <th>Green / attempted</th>
@@ -60,6 +60,9 @@ export function CostTable({ groups }: { groups: CostEffectivenessGroup[] }) {
             </thead>
             <tbody>
               {groups.map((group) => {
+                const issueMix = Object.entries(group.issue_type_counts)
+                  .map(([issueType, count]) => `${count} ${issueType}`)
+                  .join(" · ");
                 const green = autonomousOnly ? group.autonomous_green_issues : group.green_issues;
                 const cpgi = autonomousOnly
                   ? group.autonomous_cost_per_green_issue_usd
@@ -68,8 +71,8 @@ export function CostTable({ groups }: { groups: CostEffectivenessGroup[] }) {
                   ? Math.round((group.total_human_interruptions / green) * 1000) / 1000
                   : null;
                 return (
-                  <tr key={`${group.model}-${group.issue_type}`}>
-                    <td><strong>{group.model}</strong><span>{group.issue_type}</span></td>
+                  <tr key={group.model}>
+                    <td><strong>{group.model}</strong><span>{issueMix || "all completed work"}</span></td>
                     <td>
                       {cpgi === null
                         ? <><strong>N/A</strong><span>No green issues — {formatMoney(group.total_spend_usd)} spent</span></>
@@ -88,7 +91,7 @@ export function CostTable({ groups }: { groups: CostEffectivenessGroup[] }) {
           </table>
         </div>
       )}
-      <p className="cost-footnote">Green requires both acceptance and regression tests to pass. Autonomous green also requires zero clarification episodes.</p>
+      <p className="cost-footnote">Green requires both acceptance and regression tests to pass. Issue type is retained as recommendation context, not used to filter model comparisons.</p>
     </section>
   );
 }

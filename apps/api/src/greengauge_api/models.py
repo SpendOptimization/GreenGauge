@@ -216,7 +216,7 @@ class TelemetryAck(BaseModel):
 
 class CostEffectivenessGroup(BaseModel):
     model: str
-    issue_type: str
+    issue_type_counts: dict[str, int] = Field(default_factory=dict)
     attempted_issues: int
     green_issues: int
     autonomous_green_issues: int

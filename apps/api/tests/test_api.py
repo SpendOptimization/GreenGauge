@@ -213,7 +213,9 @@ def test_turn_telemetry_aggregates_sessions_and_is_idempotent(tmp_path, monkeypa
         failed_start = {
             **start,
             "session_id": "codex-session-failed",
-            "issue_number": 81,
+            # Seed issue 83 is a bug while successful issue 84 is uncategorized.
+            # Both must contribute to the same model comparison.
+            "issue_number": 83,
             "started_at": "2026-08-23T13:00:00Z",
         }
         assert client.post("/api/v1/telemetry/sessions/start", json=failed_start).status_code == 200
@@ -240,10 +242,9 @@ def test_turn_telemetry_aggregates_sessions_and_is_idempotent(tmp_path, monkeypa
         ).status_code == 200
 
         report = client.get("/api/v1/metrics/cost-effectiveness").json()
-        group = next(
-            item for item in report["groups"]
-            if item["model"] == "terra" and item["issue_type"] == "uncategorized"
-        )
+        group = next(item for item in report["groups"] if item["model"] == "terra")
+        assert len(report["groups"]) == 1
+        assert group["issue_type_counts"] == {"bug": 1, "uncategorized": 1}
         assert group["attempted_issues"] == 2
         assert group["green_issues"] == 1
         assert group["autonomous_green_issues"] == 0

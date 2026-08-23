@@ -561,39 +561,46 @@ class Database:
                 0, int(row["human_interventions"]) - len(episode_ids)
             )
 
-        grouped: dict[tuple[str, str], dict[str, int | float]] = {}
+        grouped: dict[str, dict[str, object]] = {}
         for run in runs.values():
             if not run["completed"]:
                 continue
             model = str(run["model"])
             issue_type = str(run["issue_type"])
-            key = (model, issue_type)
+            key = model.lower()
             current = grouped.setdefault(key, {
+                "model": model,
                 "attempted": 0,
                 "green": 0,
                 "autonomous_green": 0,
                 "spend": 0.0,
                 "interruptions": 0,
+                "issue_type_counts": {},
             })
             episode_ids = run["episode_ids"]
             assert isinstance(episode_ids, set)
+            issue_type_counts = current["issue_type_counts"]
+            assert isinstance(issue_type_counts, dict)
             interruptions = len(episode_ids) + int(run["legacy_interruptions"])
             green = int(bool(run["green"]))
-            current["attempted"] += 1
-            current["green"] += green
-            current["autonomous_green"] += int(bool(green and interruptions == 0))
-            current["spend"] += float(run["spend"])
-            current["interruptions"] += interruptions
+            current["attempted"] = int(current["attempted"]) + 1
+            current["green"] = int(current["green"]) + green
+            current["autonomous_green"] = int(current["autonomous_green"]) + int(
+                bool(green and interruptions == 0)
+            )
+            current["spend"] = float(current["spend"]) + float(run["spend"])
+            current["interruptions"] = int(current["interruptions"]) + interruptions
+            issue_type_counts[issue_type] = int(issue_type_counts.get(issue_type, 0)) + 1
 
         groups: list[CostEffectivenessGroup] = []
-        for (model, issue_type), values in grouped.items():
+        for values in grouped.values():
             spend = round(float(values["spend"]), 8)
             green = int(values["green"])
             autonomous_green = int(values["autonomous_green"])
             interruptions = int(values["interruptions"])
             groups.append(CostEffectivenessGroup(
-                model=model,
-                issue_type=issue_type,
+                model=str(values["model"]),
+                issue_type_counts=dict(sorted(dict(values["issue_type_counts"]).items())),
                 attempted_issues=int(values["attempted"]),
                 green_issues=green,
                 autonomous_green_issues=autonomous_green,
@@ -607,7 +614,7 @@ class Database:
                     round(interruptions / green, 3) if green else None
                 ),
             ))
-        return sorted(groups, key=lambda group: (group.issue_type, group.model.lower()))
+        return sorted(groups, key=lambda group: group.model.lower())
 
     def add_session_event(self, event: SessionEvent) -> SessionRecord:
         received_at = datetime.now(timezone.utc)

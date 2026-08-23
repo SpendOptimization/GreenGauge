@@ -83,14 +83,14 @@ On Codex Desktop, the Stop hook reads exact per-call token counters from the loc
 
 ## Cost metrics
 
-The dashboard intentionally does not show a projected dollar cost for an open issue. With the current evidence, that number would imply precision the system does not have. Instead it reports historical completed-run economics by model and issue type:
+The dashboard intentionally does not show a projected dollar cost for an open issue. With the current evidence, that number would imply precision the system does not have. Instead it reports historical completed-run economics across all work by model:
 
 - **Cost per green issue (CPGI):** all model spend from completed attempts—including failed, abandoned, and limited runs—divided by issues where both acceptance and regression tests passed.
 - **Autonomous CPGI:** the same spend numerator divided by green issues with zero distinct clarification episodes.
 - **Interruptions per green issue:** distinct clarification episodes across completed attempts divided by green issues.
 - **Green / attempted:** the observed success sample size shown alongside CPGI.
 
-For each model call, uncached input is `input - cached input - cache-write tokens`. Cost applies the configured uncached, cached, cache-write, and output rates to those token buckets. Reasoning tokens are retained as a diagnostic field but are not charged separately when included in output tokens. Multiple Codex sessions using the same model on one issue/PR are treated as one model attempt for CPGI; a different model on the same work item is a separate attempt.
+For each model call, uncached input is `input - cached input - cache-write tokens`. Cost applies the configured uncached, cached, cache-write, and output rates to those token buckets. Reasoning tokens are retained as a diagnostic field but are not charged separately when included in output tokens. Multiple Codex sessions using the same model on one issue/PR are treated as one model attempt for CPGI; a different model on the same work item is a separate attempt. Issue type, labels, modules, files, and change types remain attached to each work item as recommendation features, but issue type is not a hard filter on the dashboard's model comparison.
 
 You can verify the server independently with:
 

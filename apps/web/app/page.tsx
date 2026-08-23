@@ -24,9 +24,7 @@ function ModelBadge({ recommendation }: { recommendation: Recommendation | null 
 function IssueCard({ issue, costGroups }: { issue: Issue; costGroups: CostEffectivenessGroup[] }) {
   const recommendation = issue.recommendation;
   const evidence = recommendation
-    ? costGroups.find((group) =>
-        group.model.toLowerCase() === recommendation.model.toLowerCase()
-        && group.issue_type === issue.issue_type)
+    ? costGroups.find((group) => group.model.toLowerCase() === recommendation.model.toLowerCase())
     : undefined;
   return (
     <article className="issue-card">
@@ -44,7 +42,7 @@ function IssueCard({ issue, costGroups }: { issue: Issue; costGroups: CostEffect
             <span className="spark">✦</span>
             <p>{evidence
               ? recommendation.reasoning
-              : "Preliminary complexity route only. No completed cost evidence exists for this model and issue type yet."}</p>
+              : "Preliminary complexity route only. No completed cost evidence exists for this model yet."}</p>
           </div>
         )}
       </div>
@@ -62,7 +60,7 @@ function IssueCard({ issue, costGroups }: { issue: Issue; costGroups: CostEffect
               </div>
               <div><strong>{evidence ? `${evidence.green_issues}/${evidence.attempted_issues}` : "0/0"}</strong><span>green / attempted</span></div>
             </div>
-            {!evidence && <p className="evidence-note">No completed {issue.issue_type} runs for this model yet.</p>}
+            {!evidence && <p className="evidence-note">No completed runs for this model yet.</p>}
           </>
         )}
       </div>
