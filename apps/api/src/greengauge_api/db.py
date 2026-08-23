@@ -119,6 +119,21 @@ class Database:
             ).fetchone()
         return self._issue_from_row(row) if row else None
 
+    def prune_open_issues(self, repository: str, current_numbers: list[int]) -> int:
+        """Remove cached open issues that are no longer returned by GitHub."""
+        with self.connect() as connection:
+            if current_numbers:
+                placeholders = ",".join("?" for _ in current_numbers)
+                cursor = connection.execute(
+                    f"DELETE FROM issues WHERE repository = ? AND state = 'open' AND number NOT IN ({placeholders})",
+                    (repository, *current_numbers),
+                )
+            else:
+                cursor = connection.execute(
+                    "DELETE FROM issues WHERE repository = ? AND state = 'open'", (repository,)
+                )
+        return cursor.rowcount
+
     def add_session_event(self, event: SessionEvent) -> SessionRecord:
         received_at = datetime.now(timezone.utc)
         with self.connect() as connection:
@@ -152,4 +167,3 @@ class Database:
             state=row["state"], author=row["author"], labels=json.loads(row["labels_json"]),
             html_url=row["html_url"], created_at=row["created_at"], recommendation=recommendation,
         )
-

@@ -3,18 +3,29 @@ import hmac
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
+import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .db import Database
-from .models import GitHubIssueEvent, Issue, IssueList, Recommendation, SessionEvent, SessionRecord
+from .models import (
+    GitHubIssueEvent,
+    GitHubSyncResult,
+    Issue,
+    IssueList,
+    Recommendation,
+    SessionEvent,
+    SessionRecord,
+)
 from .seed import seed_if_empty
+from .services.github import GitHubClient
 from .services.recommendation import RecommendationEngine
 
 settings = get_settings()
 database = Database(settings.database_file)
 engine = RecommendationEngine()
+github_client = GitHubClient(settings.github_token)
 
 
 @asynccontextmanager
@@ -61,6 +72,44 @@ def get_issue(issue_number: int) -> Issue:
     if not issue:
         raise HTTPException(status_code=404, detail="Issue not found")
     return issue
+
+
+@app.post("/api/v1/github/sync", response_model=GitHubSyncResult)
+async def sync_github_issues() -> GitHubSyncResult:
+    try:
+        github_issues = await github_client.list_open_issues(settings.github_repository)
+    except (ValueError, httpx.HTTPError) as exc:
+        raise HTTPException(status_code=502, detail=f"GitHub sync failed: {exc}") from exc
+
+    recommended = 0
+    current_numbers: list[int] = []
+    for github_issue in github_issues:
+        existing = database.get_issue(github_issue.number)
+        issue = Issue(
+            id=github_issue.id,
+            number=github_issue.number,
+            title=github_issue.title,
+            body=github_issue.body or "",
+            state=github_issue.state,
+            author=github_issue.user.login,
+            labels=[label.name for label in github_issue.labels],
+            html_url=github_issue.html_url,
+            created_at=github_issue.created_at,
+        )
+        database.upsert_issue(issue, settings.github_repository)
+        current_numbers.append(issue.number)
+        if not existing or not existing.recommendation:
+            database.save_recommendation(issue.number, engine.recommend(issue))
+            recommended += 1
+
+    removed = database.prune_open_issues(settings.github_repository, current_numbers)
+    return GitHubSyncResult(
+        repository=settings.github_repository,
+        imported=len(github_issues),
+        recommended=recommended,
+        removed=removed,
+        synced_at=datetime.now(timezone.utc),
+    )
 
 
 @app.post("/api/v1/recommendations/{issue_number}/refresh", response_model=Recommendation)

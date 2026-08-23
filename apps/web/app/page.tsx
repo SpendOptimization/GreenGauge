@@ -1,5 +1,6 @@
 import { getIssues } from "@/lib/api";
 import type { Issue, Recommendation } from "@/lib/types";
+import { SyncButton } from "./sync-button";
 
 function formatMoney(value: number) {
   return new Intl.NumberFormat("en-US", {
@@ -96,7 +97,10 @@ export default async function Home() {
 
       <section className="queue-header">
         <div><h2>Recommendation queue</h2><p>Cached at issue creation · refreshes from the webhook</p></div>
-        <button type="button">All open issues <span>⌄</span></button>
+        <div className="queue-actions">
+          <SyncButton />
+          <button type="button">All open issues <span>⌄</span></button>
+        </div>
       </section>
 
       <section className="issue-list">
@@ -113,4 +117,3 @@ export default async function Home() {
     </main>
   );
 }
-

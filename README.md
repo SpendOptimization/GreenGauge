@@ -49,12 +49,14 @@ Open [http://localhost:3000](http://localhost:3000). The API seeds a few represe
 
 For the hackathon, use one repository token instead of building GitHub App OAuth.
 
-1. Set `GITHUB_REPOSITORY=owner/repo` and a fine-grained `GITHUB_TOKEN` with read-only Issues and Metadata access.
+1. Set `GITHUB_REPOSITORY=owner/repo`. For a private repository, also set a fine-grained `GITHUB_TOKEN` with read-only Issues and Metadata access.
 2. Start the API and expose port 8000 with `ngrok http 8000`.
 3. In the repository's **Settings → Webhooks**, create a webhook pointing to `https://<ngrok-host>/api/v1/github/webhooks`.
 4. Choose `application/json`, set the same secret in GitHub and `GITHUB_WEBHOOK_SECRET`, and subscribe only to **Issues** events.
 
 When an issue is opened, the API saves it, generates a placeholder recommendation once, and caches both records in SQLite. The engine boundary in `apps/api/src/greengauge_api/services/recommendation.py` is where the similarity lookup and small-model call belong later.
+
+Use **Sync GitHub** on the dashboard once to import the repository's existing open issues. Public repositories work without a token; a token is recommended for private repositories and to avoid GitHub's low anonymous rate limit. Syncing generates recommendations only for newly seen issues and removes demo/stale open issues from the local cache.
 
 ## Connect Codex metrics
 
@@ -78,6 +80,7 @@ npm --workspace @greengauge/codex-mcp run build
 - `GET /api/v1/issues`
 - `GET /api/v1/issues/{issue_number}`
 - `POST /api/v1/github/webhooks`
+- `POST /api/v1/github/sync`
 - `POST /api/v1/recommendations/{issue_number}/refresh`
 - `POST /api/v1/sessions/events`
 - `GET /api/v1/sessions`

@@ -40,6 +40,13 @@ h1 { max-width: 700px; margin: 14px 0 22px; font-family: Georgia, 'Times New Rom
 .queue-header h2 { margin: 0 0 6px; font-size: 21px; letter-spacing: -.5px; }.queue-header p { margin: 0; color: var(--muted); font-size: 12px; }
 .queue-header button { padding: 9px 13px; border: 1px solid var(--line); border-radius: 8px; background: var(--white); color: var(--ink); font-size: 12px; font-weight: 600; }
 .queue-header button span { margin-left: 15px; color: var(--muted); }
+.queue-actions { display: flex; align-items: center; gap: 8px; }
+.queue-header .sync-button { background: var(--ink); color: var(--white); border-color: var(--ink); cursor: pointer; transition: background .15s ease; }
+.queue-header .sync-button:hover { background: var(--green); border-color: var(--green); }
+.queue-header .sync-button:disabled { cursor: wait; opacity: .7; }
+.queue-header .sync-button.done { background: var(--green); border-color: var(--green); }
+.queue-header .sync-button.error { color: #852e25; background: #fff0ed; border-color: #e4b6b0; }
+.queue-header .sync-icon { margin: 0 7px 0 0; color: inherit; font-size: 14px; }
 .issue-list { max-width: 1320px; margin: 0 auto; padding: 0 4vw 64px; display: grid; gap: 12px; }
 .issue-card { display: grid; grid-template-columns: minmax(0, 1fr) 330px; min-height: 265px; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--white); transition: transform .2s ease, box-shadow .2s ease; }
 .issue-card:hover { transform: translateY(-2px); box-shadow: 0 15px 34px rgba(32,50,35,.07); }
@@ -73,4 +80,3 @@ footer { padding: 24px 4.5vw; border-top: 1px solid var(--line); display: flex; 
   .issue-main, .recommendation-panel { padding: 22px; }.issue-title { font-size: 22px; }
   footer { gap: 20px; flex-direction: column; }
 }
-

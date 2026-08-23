@@ -45,6 +45,14 @@ class IssueList(BaseModel):
     generated_at: datetime
 
 
+class GitHubSyncResult(BaseModel):
+    repository: str
+    imported: int
+    recommended: int
+    removed: int
+    synced_at: datetime
+
+
 class GitHubUser(BaseModel):
     login: str
 
@@ -88,4 +96,3 @@ class SessionEvent(BaseModel):
 
 class SessionRecord(SessionEvent):
     received_at: datetime
-
