@@ -4,7 +4,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export async function getIssues(): Promise<IssueList> {
   try {
-    const response = await fetch(`${API_URL}/api/v1/issues`, { next: { revalidate: 15 } });
+    const response = await fetch(`${API_URL}/api/v1/issues`, { cache: "no-store" });
     if (!response.ok) throw new Error(`API returned ${response.status}`);
     return response.json();
   } catch {
@@ -16,4 +16,3 @@ export async function getIssues(): Promise<IssueList> {
     };
   }
 }
-
