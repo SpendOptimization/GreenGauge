@@ -32,7 +32,13 @@ class ModelPricingCatalog:
         })
 
     def cost(self, usage: ModelUsageDelta) -> float:
-        configured = self.rates.get(usage.model.lower(), ModelRates())
+        model_name = usage.model.lower()
+        configured = self.rates.get(model_name)
+        if configured is None:
+            configured = next(
+                (rates for alias, rates in self.rates.items() if alias in model_name),
+                ModelRates(),
+            )
         input_rate = usage.input_cost_per_million if usage.input_cost_per_million is not None else configured.input
         cached_rate = (
             usage.cached_input_cost_per_million

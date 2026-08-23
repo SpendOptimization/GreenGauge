@@ -785,6 +785,29 @@ class Database:
         if not issue_number and not pr_number:
             return None
         work_key = self._work_key(repository, issue_number, pr_number)
+        if issue_number and pr_number:
+            issue_key = self._work_key(repository, issue_number, None)
+            issue_work_item = connection.execute(
+                "SELECT id FROM work_item_metrics WHERE work_key=?", (issue_key,)
+            ).fetchone()
+            pr_work_item = connection.execute(
+                "SELECT id FROM work_item_metrics WHERE work_key=?", (work_key,)
+            ).fetchone()
+            if issue_work_item and not pr_work_item:
+                connection.execute(
+                    """
+                    UPDATE work_item_metrics
+                    SET work_key=?, pr_number=?, pr_url=COALESCE(?, pr_url), updated_at=?
+                    WHERE id=?
+                    """,
+                    (
+                        work_key,
+                        pr_number,
+                        pr_url,
+                        datetime.now(timezone.utc).isoformat(),
+                        issue_work_item["id"],
+                    ),
+                )
         issue = None
         if issue_number:
             issue = connection.execute(

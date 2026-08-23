@@ -14,7 +14,7 @@ const server = new McpServer(
       "Once the GitHub issue or PR is known, call attach_coding_session with that same sessionId so every session rolls up to one work item.",
       "Before the final response of EVERY turn, call record_turn_metrics once with that same sessionId and turnId.",
       "Every numeric value must be an incremental delta for only this turn, never a session-to-date total.",
-      "Report one modelUsage entry per runtime-reported model API call; never estimate token counts. InputTokens must be total input including cache read/write tokens, and reasoning tokens must not be added to output tokens.",
+      "The Codex Stop hook normally reads exact per-call token counters from the local transcript. Leave modelUsage empty in that case so costs are not duplicated; use it only when the hook reports token_source=unavailable.",
       "When a human had to clarify, correct, add missing context, or unblock you, report a stable humanClarificationEpisodeId. Reuse the same ID for multiple messages in one clarification episode.",
       "Set acceptanceTestsPassed and regressionTestsPassed only from observed suite results; GreenGauge defines green as both being true.",
       "Prefer semantic fields the hook cannot know (changeTypes and extension metrics). Do not repeat hook-observed active time, test attempts, human interventions, or file paths unless the hook context says baseline reporting failed.",

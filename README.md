@@ -79,7 +79,7 @@ All numeric payloads are deltas for one turn, never cumulative totals. Event IDs
 
 SQLite maintains one `work_item_metrics` row per issue (or standalone PR), any number of `coding_sessions`, and raw idempotent `telemetry_events`. This lets one PR aggregate multiple Codex sessions while preserving `session_count`.
 
-Token usage is recorded only when the runtime exposes exact counters to the agent; the hook contract itself does not provide stable token counts, so the collector deliberately does not estimate them. Configure placeholder prices in `GREENGAUGE_MODEL_PRICING_JSON`; unknown models cost `$0` until a rate or per-event override is supplied.
+On Codex Desktop, the Stop hook reads exact per-call token counters from the local session transcript and transmits only those counters and the model name—never transcript content. Other runtimes must expose exact counters through the MCP tool; the collector deliberately does not estimate them. Configure placeholder prices in `GREENGAUGE_MODEL_PRICING_JSON`; exact model names can use an exact rate or a matching class alias such as `sol` or `terra`, while unknown models cost `$0` until configured.
 
 ## Cost metrics
 

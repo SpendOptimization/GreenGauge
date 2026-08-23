@@ -218,6 +218,49 @@ def branch_totals(root: Path) -> tuple[int, int]:
     return added, removed
 
 
+def transcript_model_calls(
+    transcript_path: Optional[str], start_index: int, fallback_model: Optional[str]
+) -> tuple[list[dict[str, Any]], int]:
+    """Read token counters only; never return transcript messages or tool content."""
+    if not transcript_path:
+        return [], start_index
+    path = Path(transcript_path)
+    if not path.exists():
+        return [], start_index
+    calls: list[dict[str, Any]] = []
+    token_event_index = 0
+    current_model = fallback_model or "unknown"
+    try:
+        with path.open(encoding="utf-8") as stream:
+            for line in stream:
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                payload = record.get("payload") or {}
+                if record.get("type") == "turn_context" and payload.get("model"):
+                    current_model = str(payload["model"])
+                if record.get("type") != "event_msg" or payload.get("type") != "token_count":
+                    continue
+                last_usage = (payload.get("info") or {}).get("last_token_usage")
+                if not isinstance(last_usage, dict):
+                    continue
+                if token_event_index >= start_index:
+                    calls.append({
+                        "call_id": f"transcript-token-event:{token_event_index}",
+                        "model": current_model,
+                        "input_tokens": int(last_usage.get("input_tokens", 0)),
+                        "cached_input_tokens": int(last_usage.get("cached_input_tokens", 0)),
+                        "cache_write_tokens": int(last_usage.get("cache_write_input_tokens", 0)),
+                        "output_tokens": int(last_usage.get("output_tokens", 0)),
+                        "reasoning_tokens": int(last_usage.get("reasoning_output_tokens", 0)),
+                    })
+                token_event_index += 1
+    except OSError:
+        return [], start_index
+    return calls, token_event_index
+
+
 def context_output(event_name: str, message: str) -> None:
     print(json.dumps({
         "hookSpecificOutput": {
@@ -243,17 +286,23 @@ def main() -> None:
     repository = infer_repository(root)
     branch = run_git(root, "branch", "--show-current")
     issue_number = infer_issue(branch)
+    transcript_path = incoming.get("transcript_path") or incoming.get("transcriptPath")
     state_path, outbox = state_paths(root, session_id)
     flush_outbox(api_url, api_key, outbox)
     state = read_state(state_path)
 
     if action == "session_start":
+        _, token_event_count = transcript_model_calls(
+            transcript_path, 0, incoming.get("model")
+        )
         state = {
             "session_id": session_id,
             "repository": repository,
             "branch": branch,
             "issue_number": issue_number,
             "started_at": utc_now(),
+            "transcript_path": transcript_path,
+            "token_event_count": token_event_count,
             "prompt_count": 0,
             "ci_attempt_total": 0,
             "pending_human_interventions": 0,
@@ -280,7 +329,8 @@ def main() -> None:
         context_output(
             "SessionStart",
             f"GreenGauge telemetry sessionId={session_id}. Baseline lifecycle metrics are automatic. "
-            "When the issue/PR is known, use attach_coding_session with this exact sessionId.",
+            "When the issue/PR is known, use attach_coding_session with this exact sessionId. "
+            "The Stop hook reads exact token counters from the local transcript without sending content.",
         )
         return
 
@@ -299,8 +349,9 @@ def main() -> None:
         context_output(
             "UserPromptSubmit",
             f"GreenGauge current sessionId={session_id}, turnId={turn_id}. Before your final response, "
-            "call record_turn_metrics once using these exact IDs. Send one entry per runtime-reported "
-            "model call. If this prompt clarifies, corrects, adds missing context, or unblocks work, "
+            "call record_turn_metrics once using these exact IDs for semantic metrics, but leave "
+            "modelUsage empty because the Stop hook captures exact local transcript token deltas. "
+            "If this prompt clarifies, corrects, adds missing context, or unblocks work, "
             "include a stable clarification episode ID (reuse it for follow-ups in the same episode). "
             "Report observed acceptance/regression results; never estimate or send content.",
         )
@@ -338,6 +389,11 @@ def main() -> None:
         removed_delta = max(0, removed_total - int(state.get("branch_removed_total", 0)))
         started = state.get("turn_started_monotonic")
         active_seconds = max(0, time.monotonic() - float(started)) if started is not None else 0
+        model_calls, token_event_count = transcript_model_calls(
+            transcript_path or state.get("transcript_path"),
+            int(state.get("token_event_count", 0)),
+            incoming.get("model"),
+        )
         payload = {
             "event_id": f"hook-stop:{session_id}:{turn_id}",
             "session_id": session_id,
@@ -359,7 +415,11 @@ def main() -> None:
                 "files_touched": files,
                 "modules_touched": modules,
                 "change_types": infer_change_types(files),
-                "extra": {"collector_version": 1},
+                "model_usage": model_calls,
+                "extra": {
+                    "collector_version": 2,
+                    "token_source": "codex-transcript" if model_calls else "unavailable",
+                },
             },
         }
         post_or_queue(
@@ -378,6 +438,8 @@ def main() -> None:
             "pending_regression_tests_passed": None,
             "branch_added_total": added_total,
             "branch_removed_total": removed_total,
+            "token_event_count": token_event_count,
+            "transcript_path": transcript_path or state.get("transcript_path"),
         })
         state.pop("turn_started_monotonic", None)
         write_state(state_path, state)

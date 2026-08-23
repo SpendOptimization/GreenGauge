@@ -114,20 +114,6 @@ def test_turn_telemetry_aggregates_sessions_and_is_idempotent(tmp_path, monkeypa
         duplicate = client.post("/api/v1/telemetry/sessions/start", json=start).json()
         assert duplicate["duplicate"] is True
 
-        attached = {
-            **start,
-            "pr_number": 99,
-            "pr_url": "https://github.com/rohanmalige/GreenGauge/pull/99",
-        }
-        assert client.post("/api/v1/telemetry/sessions/start", json=attached).status_code == 200
-
-        second = {
-            **attached,
-            "session_id": "codex-session-b",
-            "started_at": "2026-08-23T12:05:00Z",
-        }
-        assert client.post("/api/v1/telemetry/sessions/start", json=second).status_code == 200
-
         hook_turn = {
             "event_id": "hook-stop:codex-session-a:turn-1",
             "session_id": "codex-session-a",
@@ -177,6 +163,22 @@ def test_turn_telemetry_aggregates_sessions_and_is_idempotent(tmp_path, monkeypa
             "/api/v1/telemetry/sessions/codex-session-a/turns", json=mcp_turn
         ).json()
         assert retry["duplicate"] is True
+
+        # The PR does not exist when Codex starts from an issue. Attaching it later
+        # promotes the issue aggregate without dropping the turns already recorded.
+        attached = {
+            **start,
+            "pr_number": 99,
+            "pr_url": "https://github.com/rohanmalige/GreenGauge/pull/99",
+        }
+        assert client.post("/api/v1/telemetry/sessions/start", json=attached).status_code == 200
+
+        second = {
+            **attached,
+            "session_id": "codex-session-b",
+            "started_at": "2026-08-23T12:05:00Z",
+        }
+        assert client.post("/api/v1/telemetry/sessions/start", json=second).status_code == 200
 
         metrics = client.get("/api/v1/metrics/work-items/84").json()
         assert metrics["pr_number"] == 99
