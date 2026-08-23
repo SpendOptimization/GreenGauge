@@ -1,0 +1,12 @@
+[mcp_servers.greengauge_metrics]
+command = "npm"
+args = ["--workspace", "@greengauge/codex-mcp", "run", "start"]
+cwd = "."
+startup_timeout_sec = 20
+tool_timeout_sec = 20
+enabled = true
+required = false
+
+[mcp_servers.greengauge_metrics.env]
+GREENGAUGE_API_URL = "http://localhost:8000"
+

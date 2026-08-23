@@ -1,0 +1,76 @@
+:root {
+  --ink: #172019;
+  --muted: #687069;
+  --line: #dfe4dc;
+  --paper: #f5f7f2;
+  --white: #ffffff;
+  --lime: #d9ff63;
+  --green: #1d613b;
+  --terra: #dcebdc;
+  --frontier: #eee5ff;
+}
+
+* { box-sizing: border-box; }
+html { background: var(--paper); }
+body { margin: 0; color: var(--ink); background: var(--paper); font-family: Arial, Helvetica, sans-serif; }
+a { color: inherit; }
+button { font: inherit; }
+
+main { min-height: 100vh; }
+.topbar { height: 72px; padding: 0 4.5vw; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; background: rgba(255,255,255,.72); }
+.brand { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 700; letter-spacing: -.4px; }
+.brand-mark { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; background: var(--ink); color: var(--lime); font-family: Georgia, serif; font-style: italic; }
+.repo-pill { display: flex; align-items: center; gap: 9px; padding: 9px 14px; background: var(--white); border: 1px solid var(--line); border-radius: 999px; font-size: 13px; box-shadow: 0 1px 2px rgba(20,35,20,.04); }
+.github-mark { font-size: 12px; }.chevron { color: var(--muted); margin-left: 4px; }
+.live { justify-self: end; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.live > span { width: 7px; height: 7px; border-radius: 50%; background: #4ca868; box-shadow: 0 0 0 4px #dff2e4; }
+
+.hero { padding: 72px 8vw 64px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, .5fr); gap: 8vw; align-items: end; background: radial-gradient(circle at 78% 0%, rgba(217,255,99,.28), transparent 28%); }
+.overline, .eyebrow { margin: 0; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: 1.35px; text-transform: uppercase; }
+h1 { max-width: 700px; margin: 14px 0 22px; font-family: Georgia, 'Times New Roman', serif; font-size: clamp(48px, 6.1vw, 88px); font-weight: 400; line-height: .93; letter-spacing: -4px; }
+.hero-copy { max-width: 570px; margin: 0; color: var(--muted); font-size: 17px; line-height: 1.55; }
+.summary-card { border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,.86); padding: 22px; box-shadow: 0 16px 50px rgba(34,51,37,.06); }
+.summary-row { display: flex; justify-content: space-between; align-items: baseline; padding: 17px 0; border-bottom: 1px solid var(--line); }
+.summary-row:last-child { border: 0; padding-bottom: 0; }
+.summary-row strong { font-family: Georgia, serif; font-size: 27px; font-weight: 400; }
+.summary-row span { color: var(--muted); font-size: 12px; }
+.summary-row.accent strong { color: var(--green); }
+
+.queue-header { max-width: 1320px; margin: 0 auto; padding: 44px 4vw 22px; display: flex; align-items: end; justify-content: space-between; }
+.queue-header h2 { margin: 0 0 6px; font-size: 21px; letter-spacing: -.5px; }.queue-header p { margin: 0; color: var(--muted); font-size: 12px; }
+.queue-header button { padding: 9px 13px; border: 1px solid var(--line); border-radius: 8px; background: var(--white); color: var(--ink); font-size: 12px; font-weight: 600; }
+.queue-header button span { margin-left: 15px; color: var(--muted); }
+.issue-list { max-width: 1320px; margin: 0 auto; padding: 0 4vw 64px; display: grid; gap: 12px; }
+.issue-card { display: grid; grid-template-columns: minmax(0, 1fr) 330px; min-height: 265px; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--white); transition: transform .2s ease, box-shadow .2s ease; }
+.issue-card:hover { transform: translateY(-2px); box-shadow: 0 15px 34px rgba(32,50,35,.07); }
+.issue-main { padding: 28px 30px; }
+.issue-kicker { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; color: var(--muted); font-size: 11px; font-weight: 600; }.separator { opacity: .6; }
+.label { padding: 3px 7px; border-radius: 4px; background: #edf1eb; color: #58615a; font-size: 9px; text-transform: uppercase; letter-spacing: .5px; }
+.issue-title { display: inline-block; margin: 13px 0 9px; font-family: Georgia, serif; font-size: 26px; line-height: 1.15; text-decoration: none; letter-spacing: -.55px; }
+.issue-title:hover { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 4px; }
+.issue-body { max-width: 720px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.reasoning { max-width: 760px; margin-top: 22px; padding: 12px 14px; display: flex; gap: 10px; border-left: 2px solid #9bb93e; background: #f8faef; }
+.reasoning p { margin: 0; color: #475147; font-size: 12px; line-height: 1.5; }.spark { color: #799128; }
+.recommendation-panel { padding: 28px; border-left: 1px solid var(--line); background: #fafbf8; }
+.model-badge { width: fit-content; margin-top: 12px; padding: 8px 11px; border-radius: 7px; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 800; }.model-badge.terra { background: var(--terra); color: #194d31; }.model-badge.balanced { background: #e7edf8; color: #27496f; }.model-badge.frontier { background: var(--frontier); color: #553778; }.model-badge.pending { background: #ecefea; color: var(--muted); }
+.status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 20px 0; }
+.metric-grid div { display: flex; flex-direction: column; gap: 4px; }.metric-grid strong { font-family: Georgia, serif; font-size: 18px; font-weight: 400; }.metric-grid span { color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: .55px; }
+.similar-list { padding-top: 16px; border-top: 1px solid var(--line); display: grid; gap: 8px; }
+.similar-list .eyebrow { margin-bottom: 2px; }.similar-list a { display: flex; justify-content: space-between; color: var(--muted); font-size: 10px; text-decoration: none; }.similar-list a:hover { color: var(--green); }.similar-list strong { color: var(--ink); font-weight: 600; }
+.empty-state { padding: 70px; border: 1px dashed #b9c1b6; border-radius: 14px; text-align: center; background: rgba(255,255,255,.5); }.empty-state > span { color: #9a4b42; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }.empty-state h2 { max-width: 520px; margin: 16px auto; font-family: Georgia, serif; font-weight: 400; }.empty-state code { color: var(--muted); font-size: 11px; }
+footer { padding: 24px 4.5vw; border-top: 1px solid var(--line); display: flex; justify-content: space-between; color: var(--muted); font-size: 10px; }
+
+@media (max-width: 850px) {
+  .topbar { grid-template-columns: 1fr auto; }.repo-pill { display: none; }
+  .hero { grid-template-columns: 1fr; padding-top: 52px; }.summary-card { max-width: none; }
+  h1 { letter-spacing: -2.5px; }
+  .issue-card { grid-template-columns: 1fr; }.recommendation-panel { border-left: 0; border-top: 1px solid var(--line); }
+}
+
+@media (max-width: 540px) {
+  .hero { padding: 42px 22px; }.queue-header, .issue-list { padding-left: 18px; padding-right: 18px; }.queue-header p { display: none; }
+  .issue-main, .recommendation-panel { padding: 22px; }.issue-title { font-size: 22px; }
+  footer { gap: 20px; flex-direction: column; }
+}
+

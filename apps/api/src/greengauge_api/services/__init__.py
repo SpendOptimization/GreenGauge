@@ -1,0 +1,2 @@
+"""GreenGauge service boundaries."""
+
