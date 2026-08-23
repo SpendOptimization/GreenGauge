@@ -11,6 +11,9 @@ class SimilarIssue(BaseModel):
     total_cost_usd: float
     similarity: float
     url: str
+    type_match: float = 0
+    description_similarity: float = 0
+    complexity_similarity: float = 0
 
 
 class Recommendation(BaseModel):
@@ -19,10 +22,54 @@ class Recommendation(BaseModel):
     confidence: float = Field(ge=0, le=1)
     expected_cost_usd: float = Field(ge=0)
     expected_iterations: int = Field(ge=1)
+    reasoning_effort: str = "unknown"
+    similarity_weighted_cpgi_usd: float | None = Field(default=None, ge=0)
+    weighted_success_rate: float | None = Field(default=None, ge=0, le=1)
+    complexity_score: int | None = Field(default=None, ge=0, le=10)
+    complexity_class: str | None = None
+    recommendation_basis: str = "heuristic"
     reasoning: str
     status: str = "ready"
     generated_at: datetime
     similar_issues: list[SimilarIssue] = Field(default_factory=list)
+
+
+class ComplexityAssessment(BaseModel):
+    scope_score: int = Field(ge=0, le=2)
+    solution_uncertainty_score: int = Field(ge=0, le=2)
+    public_interface_score: int = Field(ge=0, le=2)
+    risk_compatibility_score: int = Field(ge=0, le=2)
+    testing_burden_score: int = Field(ge=0, le=2)
+    classifier_confidence: float = Field(ge=0, le=1)
+    classification_evidence: dict[str, str] = Field(default_factory=dict)
+
+
+class IssueAnalysis(BaseModel):
+    issue_number: int
+    repository: str
+    acceptance_criteria: str = ""
+    github_labels: list[str] = Field(default_factory=list)
+    actionable_labels: list[str] = Field(default_factory=list)
+    routing_labels: list[str] = Field(default_factory=list)
+    disposition_label: str | None = None
+    benchmark_eligible: bool
+    issue_text: str
+    embedding: list[float] | None = None
+    embedding_model: str | None = None
+    embedding_model_version: str | None = None
+    scope_score: int = Field(ge=0, le=2)
+    solution_uncertainty_score: int = Field(ge=0, le=2)
+    public_interface_score: int = Field(ge=0, le=2)
+    risk_compatibility_score: int = Field(ge=0, le=2)
+    testing_burden_score: int = Field(ge=0, le=2)
+    complexity_score: int = Field(ge=0, le=10)
+    complexity_class: Literal["Easy", "Medium", "Hard"]
+    classifier_model: str
+    classifier_prompt_version: str
+    rubric_version: str
+    classifier_confidence: float = Field(ge=0, le=1)
+    classification_evidence: dict[str, str] = Field(default_factory=dict)
+    analyzed_at: datetime
 
 
 class Issue(BaseModel):
@@ -141,6 +188,8 @@ class CodingSessionStart(BaseModel):
     pr_number: int | None = Field(default=None, ge=1)
     pr_url: str | None = None
     model: str | None = None
+    model_snapshot: str | None = None
+    reasoning_effort: str | None = None
     branch: str | None = None
     started_at: datetime
     source: str = "mcp"

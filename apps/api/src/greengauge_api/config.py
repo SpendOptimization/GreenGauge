@@ -21,6 +21,17 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("GITHUB_WEBHOOK_SECRET", "GREENGAUGE_GITHUB_WEBHOOK_SECRET"),
     )
+    openai_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("OPENAI_API_KEY", "GREENGAUGE_OPENAI_API_KEY"),
+    )
+    recommendation_model: str = Field(
+        default="gpt-5-nano-2025-08-07",
+        validation_alias=AliasChoices("RECOMMENDATION_MODEL", "GREENGAUGE_RECOMMENDATION_MODEL"),
+    )
+    embedding_model: str = "text-embedding-3-small"
+    recommendation_min_similarity: float = 0.60
+    recommendation_min_success_rate: float = 0.60
     mcp_api_key: str | None = None
     model_pricing_json: str = (
         '{"terra":{"input":0.25,"cached_input":0.025,"cache_write":0.25,"output":1.5},'

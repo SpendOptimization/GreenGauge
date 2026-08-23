@@ -16,6 +16,7 @@ from .models import (
     GitHubIssueEvent,
     GitHubSyncResult,
     Issue,
+    IssueAnalysis,
     IssueList,
     Recommendation,
     SessionEvent,
@@ -27,12 +28,19 @@ from .models import (
 from .seed import seed_if_empty
 from .services.categorization import classify_issue
 from .services.github import GitHubClient
+from .services.issue_analysis import IssueAnalyzer
 from .services.pricing import ModelPricingCatalog
 from .services.recommendation import RecommendationEngine
 
 settings = get_settings()
 database = Database(settings.database_file)
-engine = RecommendationEngine()
+analyzer = IssueAnalyzer(
+    settings.openai_api_key, settings.recommendation_model, settings.embedding_model
+)
+engine = RecommendationEngine(
+    database, analyzer, settings.github_repository,
+    settings.recommendation_min_similarity, settings.recommendation_min_success_rate,
+)
 github_client = GitHubClient(settings.github_token)
 pricing = ModelPricingCatalog.from_json(settings.model_pricing_json)
 
@@ -83,6 +91,14 @@ def get_issue(issue_number: int) -> Issue:
     return issue
 
 
+@app.get("/api/v1/issues/{issue_number}/analysis", response_model=IssueAnalysis)
+def get_issue_analysis(issue_number: int) -> IssueAnalysis:
+    analysis = database.get_issue_analysis(issue_number)
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Issue analysis not found")
+    return analysis
+
+
 @app.post("/api/v1/github/sync", response_model=GitHubSyncResult)
 async def sync_github_issues() -> GitHubSyncResult:
     try:
@@ -109,7 +125,7 @@ async def sync_github_issues() -> GitHubSyncResult:
         database.upsert_issue(issue, settings.github_repository)
         current_numbers.append(issue.number)
         if not existing or not existing.recommendation:
-            database.save_recommendation(issue.number, engine.recommend(issue))
+            database.save_recommendation(issue.number, engine.recommend(issue, settings.github_repository))
             recommended += 1
 
     removed = database.prune_open_issues(settings.github_repository, current_numbers)
@@ -127,7 +143,7 @@ def refresh_recommendation(issue_number: int) -> Recommendation:
     issue = database.get_issue(issue_number)
     if not issue:
         raise HTTPException(status_code=404, detail="Issue not found")
-    recommendation = engine.recommend(issue)
+    recommendation = engine.recommend(issue, settings.github_repository)
     database.save_recommendation(issue_number, recommendation)
     return recommendation
 
@@ -165,9 +181,10 @@ async def github_webhook(
     if event.action == "opened":
         if existing and existing.recommendation:
             return {"status": "cached", "issue_number": issue.number}
-        database.save_recommendation(issue.number, engine.recommend(issue))
+        database.save_recommendation(issue.number, engine.recommend(issue, event.repository.full_name))
         return {"status": "recommended", "issue_number": issue.number}
-    return {"status": "metadata_updated", "issue_number": issue.number}
+    database.save_recommendation(issue.number, engine.recommend(issue, event.repository.full_name))
+    return {"status": "recommendation_updated", "issue_number": issue.number}
 
 
 @app.post(

@@ -64,11 +64,13 @@ server.registerTool(
       pullRequestNumber: z.number().int().positive().optional(),
       pullRequestUrl: z.string().url().optional(),
       model: z.string().optional(),
+      modelSnapshot: z.string().optional(),
+      reasoningEffort: z.string().optional(),
       branch: z.string().optional(),
       startedAt: z.string().datetime().optional(),
     },
   },
-  async ({ sessionId, repository, issueNumber, pullRequestNumber, pullRequestUrl, model, branch, startedAt }) => {
+  async ({ sessionId, repository, issueNumber, pullRequestNumber, pullRequestUrl, model, modelSnapshot, reasoningEffort, branch, startedAt }) => {
     const result = await send("/api/v1/telemetry/sessions/start", {
       session_id: sessionId,
       repository,
@@ -76,6 +78,8 @@ server.registerTool(
       pr_number: pullRequestNumber,
       pr_url: pullRequestUrl,
       model,
+      model_snapshot: modelSnapshot,
+      reasoning_effort: reasoningEffort,
       branch,
       started_at: startedAt ?? new Date().toISOString(),
       source: "mcp",

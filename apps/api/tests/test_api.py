@@ -1,7 +1,13 @@
 import importlib
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+
+from greengauge_api.models import Issue, IssueAnalysis
+from greengauge_api.services.issue_analysis import IssueAnalyzer, extract_acceptance_criteria
+from greengauge_api.services.recommendation import RecommendationEngine, embedding_similarity, jaccard
 
 
 def build_client(tmp_path: Path, monkeypatch) -> TestClient:
@@ -42,6 +48,119 @@ def test_session_event_round_trip(tmp_path, monkeypatch):
         assert events[0]["metrics"]["tool_calls"] == 8
 
 
+def test_similarity_weighted_recommendation_uses_labels_description_and_complexity():
+    assert extract_acceptance_criteria(
+        "## Expected behavior\nFallback\n## Acceptance criteria\nPreferred\n"
+    ) == "Preferred"
+    query = IssueAnalysis(
+        issue_number=20, repository="acme/repo", github_labels=["bug"],
+        actionable_labels=["bug"], benchmark_eligible=True, issue_text="Fix webhook retry race",
+        embedding=[1, 0], embedding_model="test", embedding_model_version="test",
+        scope_score=1, solution_uncertainty_score=1, public_interface_score=0,
+        risk_compatibility_score=1, testing_burden_score=1, complexity_score=4,
+        complexity_class="Medium", classifier_model="test", classifier_prompt_version="v1",
+        rubric_version="v1", classifier_confidence=0.9, analyzed_at=datetime.now(timezone.utc),
+    )
+
+    class FakeAnalyzer:
+        def analyze(self, _issue, _repository):
+            return query
+
+    class FakeDatabase:
+        def save_issue_analysis(self, _analysis):
+            pass
+
+        def historical_issue_runs(self, _repository, _exclude):
+            base = {
+                "issue_number": 10, "title": "Webhook race", "html_url": "https://example/10",
+                "actionable_labels_json": json.dumps(["bug"]),
+                "embedding_json": json.dumps([1, 0]), "complexity_score": 5,
+                "reasoning_effort": "low", "green": 1, "human_interventions": 0,
+                "termination_reason": "green", "session_id": "one",
+            }
+            return [
+                base | {"model": "gpt-5.6-terra", "total_cost_usd": 1.0},
+                base | {"model": "gpt-5.6-sol", "total_cost_usd": 2.0},
+            ]
+
+        def cost_effectiveness(self, _repository):
+            return []
+
+    issue = Issue(
+        id=20, number=20, title="Fix webhook retry race", author="dev", labels=["bug"],
+        html_url="https://example/20", created_at=datetime.now(timezone.utc),
+    )
+    recommendation = RecommendationEngine(
+        FakeDatabase(), FakeAnalyzer(), "acme/repo"
+    ).recommend(issue)
+    assert jaccard(["bug", "accessibility"], ["bug"]) == 0.5
+    assert embedding_similarity([1, 0], [1, 0]) == 1
+    assert recommendation.model == "gpt-5.6-terra"
+    assert recommendation.recommendation_basis == "similarity-weighted"
+    assert recommendation.similarity_weighted_cpgi_usd == 1
+    assert recommendation.similar_issues[0].similarity == 98
+
+
+def test_openai_issue_analysis_parses_structured_output_and_embedding(monkeypatch):
+    assessment = {
+        "scope_score": 1,
+        "solution_uncertainty_score": 1,
+        "public_interface_score": 2,
+        "risk_compatibility_score": 0,
+        "testing_burden_score": 1,
+        "classifier_confidence": 0.91,
+        "classification_evidence": {
+            "scope": "Several cases", "solution_uncertainty": "One decision",
+            "public_interface": "New API", "risk_compatibility": "Low risk",
+            "testing_burden": "Several tests",
+        },
+    }
+
+    class FakeResponse:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.payload
+
+    class FakeClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+        def post(self, url, **_kwargs):
+            if url.endswith("/responses"):
+                return FakeResponse({
+                    "model": "gpt-5-nano-2025-08-07",
+                    "output": [{"content": [{"type": "output_text", "text": json.dumps(assessment)}]}],
+                })
+            return FakeResponse({"model": "text-embedding-3-small", "data": [{"embedding": [0.1, 0.2]}]})
+
+    monkeypatch.setattr("greengauge_api.services.issue_analysis.httpx.Client", FakeClient)
+    issue = Issue(
+        id=30, number=30, title="Add API", body="## Acceptance criteria\nReturns 200.",
+        author="dev", labels=["enhancement", "good first issue"],
+        html_url="https://example/30", created_at=datetime.now(timezone.utc),
+    )
+    analysis = IssueAnalyzer(
+        "test-key", "gpt-5-nano-2025-08-07", "text-embedding-3-small"
+    ).analyze(issue, "acme/repo")
+    assert analysis.complexity_score == 5
+    assert analysis.complexity_class == "Medium"
+    assert analysis.embedding == [0.1, 0.2]
+    assert analysis.classifier_model == "gpt-5-nano-2025-08-07"
+    assert analysis.actionable_labels == ["enhancement"]
+    assert analysis.routing_labels == ["good first issue"]
+
+
 def test_github_sync_replaces_demo_queue(tmp_path, monkeypatch):
     client = build_client(tmp_path, monkeypatch)
     import greengauge_api.main as main
@@ -55,7 +174,7 @@ def test_github_sync_replaces_demo_queue(tmp_path, monkeypatch):
             "body": "Let the user switch repositories.",
             "state": "open",
             "user": {"login": "rohan"},
-            "labels": [{"name": "frontend"}],
+            "labels": [{"name": "enhancement"}, {"name": "good first issue"}],
             "html_url": "https://github.com/rohanmalige/GreenGauge/issues/12",
             "created_at": "2026-08-23T12:00:00Z",
         })]
@@ -67,10 +186,14 @@ def test_github_sync_replaces_demo_queue(tmp_path, monkeypatch):
         assert response.json()["imported"] == 1
         issues = client.get("/api/v1/issues").json()["issues"]
         assert [issue["number"] for issue in issues] == [12]
-        assert issues[0]["recommendation"]["model"] == "Terra"
+        assert issues[0]["recommendation"]["status"] == "ready"
+        analysis = client.get("/api/v1/issues/12/analysis").json()
+        assert analysis["actionable_labels"] == ["enhancement"]
+        assert analysis["routing_labels"] == ["good first issue"]
+        assert analysis["benchmark_eligible"] is True
 
 
-def test_label_webhook_updates_issue_category_without_recommending_again(tmp_path, monkeypatch):
+def test_label_webhook_updates_issue_category_and_recommendation(tmp_path, monkeypatch):
     with build_client(tmp_path, monkeypatch) as client:
         payload = {
             "action": "labeled",
@@ -93,10 +216,13 @@ def test_label_webhook_updates_issue_category_without_recommending_again(tmp_pat
             json=payload,
         )
         assert response.status_code == 202
-        assert response.json()["status"] == "metadata_updated"
+        assert response.json()["status"] == "recommendation_updated"
         issue = client.get("/api/v1/issues/22").json()
         assert issue["issue_type"] == "bug"
-        assert issue["recommendation"] is None
+        assert issue["recommendation"]["complexity_score"] is not None
+        analysis = client.get("/api/v1/issues/22/analysis").json()
+        assert analysis["actionable_labels"] == ["bug"]
+        assert analysis["benchmark_eligible"] is True
 
 
 def test_turn_telemetry_aggregates_sessions_and_is_idempotent(tmp_path, monkeypatch):
