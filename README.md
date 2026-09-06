@@ -8,6 +8,18 @@ GreenGauge recommends the lowest-cost coding model likely to finish a GitHub iss
 - project-level Codex lifecycle hooks plus an MCP server for per-turn metrics;
 - a replaceable recommendation-engine boundary, currently backed by a deterministic placeholder.
 
+## Screenshots
+### Splash page with a sample model recommendation
+<img width="1552" height="982" alt="coverpage_rec_q" src="https://github.com/user-attachments/assets/8ef92a4a-5b59-4514-9c54-31fa4b88f110" />
+
+### Some telemetry collected during coding sessions for a given PR
+<img width="1552" height="982" alt="agent_telemetry" src="https://github.com/user-attachments/assets/7591ecbb-188d-4a9c-ac17-c1e0c2950566" />
+
+### Codex pushing incremental telemetry after each turn to help us form our model recomendations
+<img width="1440" height="181" alt="IMG_7340" src="https://github.com/user-attachments/assets/c460b4cc-0cc5-4541-afb4-aa0997e83115" />
+
+
+
 ## Architecture
 
 ```text
